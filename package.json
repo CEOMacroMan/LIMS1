@@ -1,0 +1,13 @@
+{
+  "name": "lims1",
+  "version": "1.0.0",
+  "description": "SharePoint Excel form demo",
+  "main": "index.js",
+  "scripts": {
+    "test": "node -e \"console.log('no tests')\""
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs"
+}
