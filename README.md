@@ -1,8 +1,8 @@
 # INFOTable Viewer
 
-Simple static page that reads an Excel workbook and displays the sheet named `INFOTable` as an HTML table.
+Simple static page that reads the workbook `TestData.xlsx` and displays the table named `INFOTable` as an HTML table.
 
-Place `INFOTable.xlsx` in the project root and serve the folder using any static file server:
+Place `TestData.xlsx` in the project root and serve the folder using any static file server:
 
 ```bash
 npx serve .

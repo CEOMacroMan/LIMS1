@@ -1,13 +1,20 @@
 async function loadTable() {
   try {
-    const resp = await fetch('INFOTable.xlsx');
-    if (!resp.ok) throw new Error('unable to fetch INFOTable.xlsx');
+    const resp = await fetch('TestData.xlsx');
+    if (!resp.ok) throw new Error('unable to fetch TestData.xlsx');
     const buf = await resp.arrayBuffer();
     const wb = XLSX.read(buf, { type: 'array' });
-    const sheetName = 'INFOTable';
-    let ws = wb.Sheets[sheetName];
-    if (!ws) throw new Error('sheet "INFOTable" not found');
-    const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+
+    const name = wb.Workbook && wb.Workbook.Names
+      ? wb.Workbook.Names.find(n => n.Name === 'INFOTable')
+      : null;
+    if (!name) throw new Error('table "INFOTable" not found');
+
+    const [sheetNameRaw, range] = name.Ref.split('!');
+    const sheetName = sheetNameRaw.replace(/^'/, '').replace(/'$/, '');
+    const ws = wb.Sheets[sheetName];
+    if (!ws) throw new Error(`sheet "${sheetName}" not found`);
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, range });
     render(rows);
   } catch (err) {
     document.getElementById('table').textContent = 'Error: ' + err.message;
