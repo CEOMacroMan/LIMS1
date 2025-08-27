@@ -5,6 +5,9 @@ async function loadTable(file) {
     if (el) el.textContent += msg + '\n';
   };
   try {
+    debug('Reading ' + file.name + '...');
+    const buf = await file.arrayBuffer();
+
     debug('Fetching ' + file + '...');
     const resp = await fetch(file);
     debug(`Fetch status: ${resp.status}`);
@@ -16,6 +19,7 @@ async function loadTable(file) {
     debug('Workbook loaded, parsing...');
     const wb = XLSX.read(buf, { type: 'array' });
     debug('Workbook sheets: ' + wb.SheetNames.join(', '));
+
 
     const name = wb.Workbook && wb.Workbook.Names
       ? wb.Workbook.Names.find(n => n.Name === 'INFOTable')
@@ -30,6 +34,7 @@ async function loadTable(file) {
     if (!ws) throw new Error(`sheet "${sheetName}" not found`);
     const rows = XLSX.utils.sheet_to_json(ws, { header: 1, range });
     debug('Rendering ' + rows.length + ' rows');
+
 
     const [sheetNameRaw, range] = name.Ref.split('!');
     const sheetName = sheetNameRaw.replace(/^'/, '').replace(/'$/, '');
@@ -60,6 +65,20 @@ function render(rows) {
 }
 
 document.getElementById('loadBtn').addEventListener('click', () => {
+  const input = document.getElementById('fileInput');
+  const file = input.files[0];
+  document.getElementById('debug').textContent = '';
+  if (!file) {
+    const msg = 'No file selected';
+    console.log(msg);
+    document.getElementById('debug').textContent = msg;
+    document.getElementById('table').textContent = msg;
+    return;
+  }
+  document.getElementById('table').textContent = 'Loading...';
+  loadTable(file);
+});
+
   const file = document.getElementById('file').value.trim();
   document.getElementById('table').textContent = 'Loading...';
   document.getElementById('debug').textContent = '';
