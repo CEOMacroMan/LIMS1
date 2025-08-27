@@ -1,17 +1,14 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Dynamisches Formular aus Excel</title>
+  <title>INFOTable Viewer</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <div id="app">
-    <div id="error" class="hidden"></div>
-    <div id="form-container"></div>
-    <div id="preview"></div>
-  </div>
+  <h1>INFOTable contents</h1>
+  <div id="table">Loading...</div>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-  <script type="module" src="src/main.js"></script>
+  <script src="viewer.js"></script>
 </body>
 </html>
