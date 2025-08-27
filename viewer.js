@@ -1,5 +1,6 @@
 /* global XLSX, ExcelJS */
 
+
 function log(msg) {
   console.log(msg);
   const el = document.getElementById('debug');
@@ -18,6 +19,7 @@ function setStatus(msg) {
 
 let sheetjsWb; // SheetJS workbook
 let tableEntries = []; // options for dropdown
+
 
 function renderTable(rows) {
   const container = document.getElementById('table');
@@ -92,6 +94,7 @@ async function handleWorkbook(ab) {
     const wb = XLSX.read(ab, { type: 'array' });
     sheetjsWb = wb;
 
+
     const sheetNames = Object.keys(wb.Sheets || {});
     log('Detected sheets: ' + sheetNames.join(', '));
 
@@ -147,6 +150,7 @@ async function handleWorkbook(ab) {
     populateDropdown();
     const firstSheet = tableEntries[0] ? tableEntries[0].sheet : (sheetNames.includes('INFO') ? 'INFO' : sheetNames[0]);
     showC1(firstSheet);
+
   } catch (err) {
     log('Error parsing workbook: ' + err.message);
     if (err.stack) log(err.stack);
@@ -182,6 +186,7 @@ async function loadFromURL() {
     const ab = await resp.arrayBuffer();
     log('ArrayBuffer length: ' + ab.byteLength);
     await handleWorkbook(ab);
+
   } catch (err) {
     log('Error fetching URL: ' + err.message);
     if (err.stack) log(err.stack);
@@ -279,3 +284,6 @@ document.getElementById('renderBtn').addEventListener('click', renderSelected);
  *           http://localhost/... instead.
  */
 
+
+document.getElementById('loadUrlBtn').addEventListener('click', loadFromURL);
+document.getElementById('loadFileBtn').addEventListener('click', loadFromFile);
