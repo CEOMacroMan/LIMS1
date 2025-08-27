@@ -59,4 +59,3 @@ document.getElementById('loadBtn').addEventListener('click', () => {
   loadTable(file);
 });
 
-loadTable(document.getElementById('file').value);
