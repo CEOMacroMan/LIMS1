@@ -179,17 +179,17 @@ async function loadFromURL() {
       setStatus(errMsg);
       return;
     }
-      const ab = await resp.arrayBuffer();
-      log('ArrayBuffer length: ' + ab.byteLength);
-      await handleWorkbook(ab);
-    } catch (err) {
-      log('Error fetching URL: ' + err.message);
-      if (err.stack) log(err.stack);
-      setStatus('Error: ' + err.message);
-    }
+    const ab = await resp.arrayBuffer();
+    log('ArrayBuffer length: ' + ab.byteLength);
+    await handleWorkbook(ab);
+  } catch (err) {
+    log('Error fetching URL: ' + err.message);
+    if (err.stack) log(err.stack);
+    setStatus('Error: ' + err.message);
   }
+}
 
-  function loadFromFile() {
+function loadFromFile() {
   clearLog();
   setStatus('');
   document.getElementById('cellC1').textContent = '';
@@ -205,18 +205,18 @@ async function loadFromURL() {
   log(`Selected file: ${file.name} (${file.size} bytes)`);
   const reader = new FileReader();
   reader.onload = function (e) {
-      const ab = e.target.result;
-      log('File read: ' + ab.byteLength + ' bytes');
-      handleWorkbook(ab);
-    };
+    const ab = e.target.result;
+    log('File read: ' + ab.byteLength + ' bytes');
+    handleWorkbook(ab);
+  };
   reader.onerror = function (e) {
     const err = e.target.error;
     log('FileReader error: ' + (err && err.message));
     if (err && err.stack) log(err.stack);
     setStatus('Error reading file');
   };
-    reader.readAsArrayBuffer(file);
-  }
+  reader.readAsArrayBuffer(file);
+}
 
   function renderSelected() {
     setStatus('');
