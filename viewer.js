@@ -21,6 +21,18 @@ async function loadTable() {
   }
 }
 
+async function loadStatus() {
+  try {
+    // Adjust the path below to point to the status file in OneDrive
+    const resp = await fetch('status.txt');
+    if (!resp.ok) throw new Error('unable to fetch status.txt');
+    const text = await resp.text();
+    document.getElementById('status').textContent = text;
+  } catch (err) {
+    document.getElementById('status').textContent = 'Error: ' + err.message;
+  }
+}
+
 function render(rows) {
   const container = document.getElementById('table');
   container.innerHTML = '';
@@ -38,3 +50,4 @@ function render(rows) {
 }
 
 loadTable();
+loadStatus();
