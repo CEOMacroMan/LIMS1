@@ -274,6 +274,8 @@ function loadFromFile() {
   /*
    * Usage:
    * Option A: open index.html and use "Load local file" (no CORS issues).
-   * Option B: serve the Excel file over HTTP and use "Load via URL".
+   * Option B: serve the Excel file over HTTP and use "Load via URL". Local
+   *           paths like C:\... cannot be fetched by the browser; use
+   *           http://localhost/... instead.
    */
 
