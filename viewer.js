@@ -1,3 +1,4 @@
+
 async function loadTable(file) {
   const debug = msg => {
     console.log(msg);
@@ -5,6 +6,7 @@ async function loadTable(file) {
     if (el) el.textContent += msg + '\n';
   };
   try {
+
     debug('Reading ' + file.name + '...');
     const buf = await file.arrayBuffer();
 
@@ -32,6 +34,7 @@ async function loadTable(file) {
     debug(`Using sheet "${sheetName}" range "${range}"`);
     const ws = wb.Sheets[sheetName];
     if (!ws) throw new Error(`sheet "${sheetName}" not found`);
+
     const rows = XLSX.utils.sheet_to_json(ws, { header: 1, range });
     debug('Rendering ' + rows.length + ' rows');
 
@@ -65,6 +68,7 @@ function render(rows) {
 }
 
 document.getElementById('loadBtn').addEventListener('click', () => {
+
   const input = document.getElementById('fileInput');
   const file = input.files[0];
   document.getElementById('debug').textContent = '';
