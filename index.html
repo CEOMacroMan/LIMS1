@@ -6,14 +6,31 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <h1>INFOTable contents</h1>
+  <h1>INFOTable Viewer</h1>
 
-  <label for="file">Excel file path:</label>
-  <input id="file" type="text" placeholder="path/to/workbook.xlsx" />
-  <button id="loadBtn">Load</button>
+  <div>
+    <label for="urlInput">Excel URL:</label>
+    <input id="urlInput" type="text" placeholder="http://localhost:5000/TestData.xlsm" />
+    <button id="loadUrlBtn">Load via URL</button>
+  </div>
+
+  <div>
+    <label for="fileInput">Local file:</label>
+    <input id="fileInput" type="file" accept=".xlsx,.xlsm,.xlsb,.xls" />
+    <button id="loadFileBtn">Load local file</button>
+  </div>
+
+  <div id="status"></div>
+
+  <h2>C1 Cell</h2>
+  <div id="cellC1"></div>
+
+  <h2>INFOTable</h2>
   <div id="table"></div>
+
   <h2>Debug log</h2>
   <pre id="debug"></pre>
+
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script src="viewer.js"></script>
 </body>
