@@ -7,10 +7,11 @@
 </head>
 <body>
   <h1>INFOTable contents</h1>
-  <label for="fileInput">Excel file:</label>
-  <input id="fileInput" type="file" accept=".xls,.xlsx" />
+
+  <label for="file">Excel file path:</label>
+  <input id="file" type="text" value="TestData.xlsx" />
   <button id="loadBtn">Load</button>
-  <div id="table">No file loaded</div>
+  <div id="table">Loading...</div>
   <h2>Debug log</h2>
   <pre id="debug"></pre>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>

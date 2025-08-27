@@ -7,14 +7,24 @@ async function loadTable(file) {
   try {
     debug('Reading ' + file.name + '...');
     const buf = await file.arrayBuffer();
+
+    debug('Fetching ' + file + '...');
+    const resp = await fetch(file);
+    debug(`Fetch status: ${resp.status}`);
+    if (!resp.ok) throw new Error('unable to fetch ' + file);
+    const resp = await fetch('TestData.xlsx');
+    if (!resp.ok) throw new Error('unable to fetch TestData.xlsx');
+
+    const buf = await resp.arrayBuffer();
     debug('Workbook loaded, parsing...');
     const wb = XLSX.read(buf, { type: 'array' });
     debug('Workbook sheets: ' + wb.SheetNames.join(', '));
 
-    const name = wb.Workbook?.Names
-      ? wb.Workbook.Names.find(n => n.Name.toLowerCase() === 'infotable')
+
+    const name = wb.Workbook && wb.Workbook.Names
+      ? wb.Workbook.Names.find(n => n.Name === 'INFOTable')
       : null;
-    if (!name) throw new Error('table "InfoTable" not found');
+    if (!name) throw new Error('table "INFOTable" not found');
     debug('Found table range: ' + name.Ref);
 
     const [sheetNameRaw, range] = name.Ref.split('!');
@@ -24,6 +34,13 @@ async function loadTable(file) {
     if (!ws) throw new Error(`sheet "${sheetName}" not found`);
     const rows = XLSX.utils.sheet_to_json(ws, { header: 1, range });
     debug('Rendering ' + rows.length + ' rows');
+
+
+    const [sheetNameRaw, range] = name.Ref.split('!');
+    const sheetName = sheetNameRaw.replace(/^'/, '').replace(/'$/, '');
+    const ws = wb.Sheets[sheetName];
+    if (!ws) throw new Error(`sheet "${sheetName}" not found`);
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, range });
     render(rows);
   } catch (err) {
     debug('Error: ' + err.message);
@@ -61,3 +78,11 @@ document.getElementById('loadBtn').addEventListener('click', () => {
   document.getElementById('table').textContent = 'Loading...';
   loadTable(file);
 });
+
+  const file = document.getElementById('file').value.trim();
+  document.getElementById('table').textContent = 'Loading...';
+  document.getElementById('debug').textContent = '';
+  loadTable(file);
+});
+
+loadTable(document.getElementById('file').value);
