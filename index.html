@@ -7,11 +7,12 @@
 </head>
 <body>
   <h1>INFOTable contents</h1>
-  <button id="loadBtn">Load workbook</button>
-  <h2>Cell C1</h2>
-  <div id="cell">No file loaded</div>
-  <h2>INFOTable</h2>
-  <div id="table">No file loaded</div>
+
+
+  <label for="file">Excel file path:</label>
+  <input id="file" type="text" value="TestData.xlsx" />
+  <button id="loadBtn">Load</button>
+  <div id="table">Loading...</div>
   <h2>Debug log</h2>
   <pre id="debug"></pre>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>

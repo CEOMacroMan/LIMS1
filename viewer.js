@@ -1,24 +1,30 @@
-// Workbook expected alongside index.html, e.g., copied from
-// C:\\Hutchinson old\\TestData.xlsm
-const FILE_PATH = 'TestData.xlsm';
 
-async function loadTable() {
+async function loadTable(file) {
   const debug = msg => {
     console.log(msg);
     const el = document.getElementById('debug');
     if (el) el.textContent += msg + '\n';
   };
   try {
-    debug('Fetching ' + FILE_PATH + '...');
-    const resp = await fetch(FILE_PATH);
-    if (!resp.ok) throw new Error('unable to fetch ' + FILE_PATH);
+
+    debug('Reading ' + file.name + '...');
+    const buf = await file.arrayBuffer();
+
+    debug('Fetching ' + file + '...');
+    const resp = await fetch(file);
+    debug(`Fetch status: ${resp.status}`);
+    if (!resp.ok) throw new Error('unable to fetch ' + file);
+    const resp = await fetch('TestData.xlsx');
+    if (!resp.ok) throw new Error('unable to fetch TestData.xlsx');
+
     const buf = await resp.arrayBuffer();
     debug('Workbook loaded, parsing...');
     const wb = XLSX.read(buf, { type: 'array' });
     debug('Workbook sheets: ' + wb.SheetNames.join(', '));
 
-    const name = wb.Workbook?.Names
-      ? wb.Workbook.Names.find(n => n.Name.toLowerCase() === 'infotable')
+
+    const name = wb.Workbook && wb.Workbook.Names
+      ? wb.Workbook.Names.find(n => n.Name === 'INFOTable')
       : null;
     if (!name) throw new Error('table "INFOTable" not found');
     debug('Found table range: ' + name.Ref);
@@ -29,16 +35,18 @@ async function loadTable() {
     const ws = wb.Sheets[sheetName];
     if (!ws) throw new Error(`sheet "${sheetName}" not found`);
 
-    const c1 = ws['C1'] ? ws['C1'].v : '';
-    debug('Cell C1 value: ' + c1);
-    document.getElementById('cell').textContent = c1;
-
     const rows = XLSX.utils.sheet_to_json(ws, { header: 1, range });
     debug('Rendering ' + rows.length + ' rows');
+
+
+    const [sheetNameRaw, range] = name.Ref.split('!');
+    const sheetName = sheetNameRaw.replace(/^'/, '').replace(/'$/, '');
+    const ws = wb.Sheets[sheetName];
+    if (!ws) throw new Error(`sheet "${sheetName}" not found`);
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, range });
     render(rows);
   } catch (err) {
     debug('Error: ' + err.message);
-    document.getElementById('cell').textContent = 'Error';
     document.getElementById('table').textContent = 'Error: ' + err.message;
   }
 }
@@ -60,8 +68,25 @@ function render(rows) {
 }
 
 document.getElementById('loadBtn').addEventListener('click', () => {
+
+  const input = document.getElementById('fileInput');
+  const file = input.files[0];
   document.getElementById('debug').textContent = '';
-  document.getElementById('cell').textContent = 'Loading...';
+  if (!file) {
+    const msg = 'No file selected';
+    console.log(msg);
+    document.getElementById('debug').textContent = msg;
+    document.getElementById('table').textContent = msg;
+    return;
+  }
   document.getElementById('table').textContent = 'Loading...';
-  loadTable();
+  loadTable(file);
 });
+
+  const file = document.getElementById('file').value.trim();
+  document.getElementById('table').textContent = 'Loading...';
+  document.getElementById('debug').textContent = '';
+  loadTable(file);
+});
+
+loadTable(document.getElementById('file').value);
