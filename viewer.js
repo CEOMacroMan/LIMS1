@@ -1,4 +1,5 @@
-/* global XLSX */
+/* global XLSX, ExcelJS */
+
 
 function log(msg) {
   console.log(msg);
@@ -16,6 +17,10 @@ function setStatus(msg) {
   if (el) el.textContent = msg || '';
 }
 
+let sheetjsWb; // SheetJS workbook
+let tableEntries = []; // options for dropdown
+
+
 function renderTable(rows) {
   const container = document.getElementById('table');
   container.innerHTML = '';
@@ -32,10 +37,63 @@ function renderTable(rows) {
   container.appendChild(table);
 }
 
-function handleWorkbook(ab) {
+function populateDropdown() {
+  const sel = document.getElementById('tableList');
+  sel.innerHTML = '';
+  tableEntries.forEach((t, i) => {
+    const opt = document.createElement('option');
+    if (t.type === 'table') {
+      opt.textContent = `${t.sheet}: ${t.name} [${t.ref}]`;
+    } else if (t.type === 'name') {
+      opt.textContent = `${t.sheet}: ${t.name} [${t.ref}]`;
+    } else {
+      opt.textContent = `${t.sheet}: (preview first 50x50)`;
+    }
+    opt.value = String(i);
+    sel.appendChild(opt);
+  });
+}
+
+function showC1(sheetName) {
+  const cellDiv = document.getElementById('cellC1');
+  if (!sheetjsWb) {
+    cellDiv.textContent = 'C1: (no workbook)';
+    return;
+  }
+  const sheetNames = Object.keys(sheetjsWb.Sheets || {});
+  let target = sheetName;
+  if (!target) {
+    target = sheetNames.includes('INFO') ? 'INFO' : sheetNames[0];
+  }
+  if (!target) {
+    cellDiv.textContent = 'C1: (no sheets)';
+    log('No sheets in workbook');
+    return;
+  }
+  log(`Reading cell C1 from sheet ${target}`);
+  const ws = sheetjsWb.Sheets[target];
+  if (!ws) {
+    cellDiv.textContent = 'C1: (sheet not found)';
+    log(`Sheet for C1 not found: ${target}`);
+    return;
+  }
+  const cell = ws['C1'];
+  if (cell) {
+    const val = cell.w || cell.v;
+    cellDiv.textContent = 'C1: ' + val;
+    log(`C1 value: ${val}`);
+  } else {
+    cellDiv.textContent = 'C1: (not found)';
+    log('C1 not found');
+  }
+}
+
+async function handleWorkbook(ab) {
   try {
-    log('Parsing workbook...');
+    log('Parsing workbook with SheetJS...');
     const wb = XLSX.read(ab, { type: 'array' });
+    sheetjsWb = wb;
+
 
     const sheetNames = Object.keys(wb.Sheets || {});
     log('Detected sheets: ' + sheetNames.join(', '));
@@ -46,58 +104,53 @@ function handleWorkbook(ab) {
     } else {
       log('No defined names');
     }
-
-    let tableSheetName;
-    let tableRange;
-    const infoName = names.find(n => n.Name === 'INFOTable');
-    if (infoName) {
-      log(`Found named range INFOTable: ${infoName.Ref}`);
-      const idx = infoName.Ref.indexOf('!');
-      if (idx !== -1) {
-        const rawSheet = infoName.Ref.slice(0, idx);
-        tableRange = infoName.Ref.slice(idx + 1);
-        tableSheetName = rawSheet.replace(/^'/, '').replace(/'$/, '');
-        log(`INFOTable sheet: ${tableSheetName}`);
-        log(`INFOTable range: ${tableRange}`);
-        const ws = wb.Sheets[tableSheetName];
-        if (ws) {
-          const rows = XLSX.utils.sheet_to_json(ws, { header: 1, range: tableRange });
-          renderTable(rows);
-          const colCount = rows.reduce((m, r) => Math.max(m, r.length), 0);
-          log(`Rendered ${rows.length} rows and ${colCount} columns`);
-        } else {
-          setStatus(`Sheet ${tableSheetName} not found`);
-          log(`Sheet ${tableSheetName} not found`);
-        }
-      }
-    } else {
+    if (!names.find(n => n.Name === 'INFOTable')) {
       log("Named range 'INFOTable' not found");
-      setStatus("Named range 'INFOTable' not found");
-      document.getElementById('table').textContent = '';
     }
 
-    const c1SheetName = tableSheetName || sheetNames[0];
-    if (c1SheetName) {
-      log(`Reading cell C1 from sheet ${c1SheetName}`);
-      const ws = wb.Sheets[c1SheetName];
-      if (ws) {
-        const cell = ws['C1'];
-        if (cell) {
-          const val = cell.w || cell.v;
-          document.getElementById('cellC1').textContent = 'C1: ' + val;
-          log(`C1 value: ${val}`);
-        } else {
-          document.getElementById('cellC1').textContent = 'C1: (not found)';
-          log('C1 not found');
-        }
-      } else {
-        document.getElementById('cellC1').textContent = 'C1: (sheet not found)';
-        log(`Sheet for C1 not found: ${c1SheetName}`);
-      }
+    tableEntries = [];
+
+    if (typeof ExcelJS !== 'undefined') {
+      log('Loading workbook with ExcelJS for table discovery...');
+      const ex = new ExcelJS.Workbook();
+      await ex.xlsx.load(ab);
+      ex.eachSheet(ws => {
+        const wsTables = ws.tables || {};
+        Object.keys(wsTables).forEach(tname => {
+          const t = ws.getTable ? ws.getTable(tname) : wsTables[tname];
+          const addr = t && t.table ? t.table.ref : (t && t.ref ? t.ref : '');
+          tableEntries.push({ type: 'table', sheet: ws.name, name: tname, ref: addr });
+          log(`Table: ${tname} on sheet ${ws.name} range ${addr}`);
+        });
+      });
     } else {
-      document.getElementById('cellC1').textContent = 'C1: (no sheets)';
-      log('No sheets in workbook');
+      log('ExcelJS not available');
     }
+
+    if (!tableEntries.length) {
+      log('No Excel Tables found');
+      if (names.length) {
+        names.forEach(n => {
+          const idx = n.Ref.indexOf('!');
+          let sheet = sheetNames[0];
+          let ref = n.Ref;
+          if (idx !== -1) {
+            sheet = n.Ref.slice(0, idx).replace(/^'/, '').replace(/'$/, '');
+            ref = n.Ref.slice(idx + 1);
+          }
+          tableEntries.push({ type: 'name', sheet, name: n.Name, ref });
+        });
+      } else {
+        sheetNames.forEach(sn => {
+          tableEntries.push({ type: 'sheet', sheet: sn, name: sn });
+        });
+      }
+    }
+
+    populateDropdown();
+    const firstSheet = tableEntries[0] ? tableEntries[0].sheet : (sheetNames.includes('INFO') ? 'INFO' : sheetNames[0]);
+    showC1(firstSheet);
+
   } catch (err) {
     log('Error parsing workbook: ' + err.message);
     if (err.stack) log(err.stack);
@@ -132,7 +185,8 @@ async function loadFromURL() {
     }
     const ab = await resp.arrayBuffer();
     log('ArrayBuffer length: ' + ab.byteLength);
-    handleWorkbook(ab);
+    await handleWorkbook(ab);
+
   } catch (err) {
     log('Error fetching URL: ' + err.message);
     if (err.stack) log(err.stack);
@@ -168,6 +222,68 @@ function loadFromFile() {
   };
   reader.readAsArrayBuffer(file);
 }
+
+  function renderSelected() {
+    setStatus('');
+    const sel = document.getElementById('tableList');
+    const idx = sel.selectedIndex;
+    const info = tableEntries[idx];
+    if (!info) {
+      log('No selection to render');
+      setStatus('Please select a table or range');
+      return;
+    }
+    if (!sheetjsWb) {
+      log('No workbook loaded');
+      setStatus('No workbook loaded');
+      return;
+    }
+    if (info.type === 'table' || info.type === 'name') {
+      log(`Rendering ${info.type === 'table' ? 'table' : 'named range'} ${info.name} on sheet ${info.sheet} range ${info.ref}`);
+      const ws = sheetjsWb.Sheets[info.sheet];
+      if (ws) {
+        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, range: info.ref });
+        renderTable(rows);
+        const colCount = rows.reduce((m, r) => Math.max(m, r.length), 0);
+        log(`Rendered ${rows.length} rows and ${colCount} columns`);
+      } else {
+        log(`Sheet ${info.sheet} not found`);
+        setStatus(`Sheet ${info.sheet} not found`);
+      }
+    } else if (info.type === 'sheet') {
+      log(`Rendering sheet preview for ${info.sheet}`);
+      const ws = sheetjsWb.Sheets[info.sheet];
+      if (ws) {
+        const used = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+        const range = {
+          s: { r: used.s.r, c: used.s.c },
+          e: { r: Math.min(used.e.r, used.s.r + 49), c: Math.min(used.e.c, used.s.c + 49) }
+        };
+        const rangeStr = XLSX.utils.encode_range(range);
+        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, range: rangeStr });
+        renderTable(rows);
+        const colCount = rows.reduce((m, r) => Math.max(m, r.length), 0);
+        log(`Rendered preview ${rows.length} rows and ${colCount} columns from ${info.sheet} (${rangeStr})`);
+      } else {
+        log(`Sheet ${info.sheet} not found`);
+        setStatus(`Sheet ${info.sheet} not found`);
+      }
+    }
+    showC1(info.sheet);
+  }
+
+document.getElementById('loadUrlBtn').addEventListener('click', loadFromURL);
+document.getElementById('loadFileBtn').addEventListener('click', loadFromFile);
+document.getElementById('renderBtn').addEventListener('click', renderSelected);
+
+/*
+ * Usage:
+ * Option A: open index.html and use "Load local file" (no CORS issues).
+ * Option B: serve the Excel file over HTTP and use "Load via URL". Local
+ *           paths like C:\... cannot be fetched by the browser; use
+ *           http://localhost/... instead.
+ */
+
 
 document.getElementById('loadUrlBtn').addEventListener('click', loadFromURL);
 document.getElementById('loadFileBtn').addEventListener('click', loadFromFile);
