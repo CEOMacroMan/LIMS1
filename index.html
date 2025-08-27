@@ -8,11 +8,10 @@
 <body>
   <h1>INFOTable contents</h1>
 
-
   <label for="file">Excel file path:</label>
-  <input id="file" type="text" value="TestData.xlsx" />
+  <input id="file" type="text" placeholder="path/to/workbook.xlsx" />
   <button id="loadBtn">Load</button>
-  <div id="table">Loading...</div>
+  <div id="table"></div>
   <h2>Debug log</h2>
   <pre id="debug"></pre>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
