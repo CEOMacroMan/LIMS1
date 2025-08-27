@@ -10,3 +10,11 @@ td, th {
   border: 1px solid #ccc;
   padding: 4px 8px;
 }
+
+#debug {
+  border: 1px solid #ccc;
+  padding: 4px;
+  height: 200px;
+  overflow: auto;
+  background: #f9f9f9;
+}
