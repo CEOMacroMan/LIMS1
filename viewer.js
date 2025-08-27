@@ -1,15 +1,35 @@
 async function loadTable() {
+  const debug = msg => {
+    console.log(msg);
+    const el = document.getElementById('debug');
+    if (el) el.textContent += msg + '\n';
+  };
   try {
-    const resp = await fetch('INFOTable.xlsx');
-    if (!resp.ok) throw new Error('unable to fetch INFOTable.xlsx');
+    debug('Fetching TestData.xlsx...');
+    const resp = await fetch('TestData.xlsx');
+    debug(`Fetch status: ${resp.status}`);
+    if (!resp.ok) throw new Error('unable to fetch TestData.xlsx');
     const buf = await resp.arrayBuffer();
+    debug('Workbook loaded, parsing...');
     const wb = XLSX.read(buf, { type: 'array' });
-    const sheetName = 'INFOTable';
-    let ws = wb.Sheets[sheetName];
-    if (!ws) throw new Error('sheet "INFOTable" not found');
-    const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+    debug('Workbook sheets: ' + wb.SheetNames.join(', '));
+
+    const name = wb.Workbook && wb.Workbook.Names
+      ? wb.Workbook.Names.find(n => n.Name === 'INFOTable')
+      : null;
+    if (!name) throw new Error('table "INFOTable" not found');
+    debug('Found table range: ' + name.Ref);
+
+    const [sheetNameRaw, range] = name.Ref.split('!');
+    const sheetName = sheetNameRaw.replace(/^'/, '').replace(/'$/, '');
+    debug(`Using sheet "${sheetName}" range "${range}"`);
+    const ws = wb.Sheets[sheetName];
+    if (!ws) throw new Error(`sheet "${sheetName}" not found`);
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, range });
+    debug('Rendering ' + rows.length + ' rows');
     render(rows);
   } catch (err) {
+    debug('Error: ' + err.message);
     document.getElementById('table').textContent = 'Error: ' + err.message;
   }
 }
