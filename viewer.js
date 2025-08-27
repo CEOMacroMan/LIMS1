@@ -9,6 +9,9 @@ async function loadTable(file) {
     const resp = await fetch(file);
     debug(`Fetch status: ${resp.status}`);
     if (!resp.ok) throw new Error('unable to fetch ' + file);
+    const resp = await fetch('TestData.xlsx');
+    if (!resp.ok) throw new Error('unable to fetch TestData.xlsx');
+
     const buf = await resp.arrayBuffer();
     debug('Workbook loaded, parsing...');
     const wb = XLSX.read(buf, { type: 'array' });
@@ -27,6 +30,12 @@ async function loadTable(file) {
     if (!ws) throw new Error(`sheet "${sheetName}" not found`);
     const rows = XLSX.utils.sheet_to_json(ws, { header: 1, range });
     debug('Rendering ' + rows.length + ' rows');
+
+    const [sheetNameRaw, range] = name.Ref.split('!');
+    const sheetName = sheetNameRaw.replace(/^'/, '').replace(/'$/, '');
+    const ws = wb.Sheets[sheetName];
+    if (!ws) throw new Error(`sheet "${sheetName}" not found`);
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, range });
     render(rows);
   } catch (err) {
     debug('Error: ' + err.message);
