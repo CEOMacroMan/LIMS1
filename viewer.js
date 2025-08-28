@@ -20,7 +20,6 @@ function setStatus(msg) {
 let sheetjsWb; // SheetJS workbook
 let tableEntries = []; // options for dropdown
 
-
 function renderTable(rows) {
   const container = document.getElementById('table');
   container.innerHTML = '';
@@ -29,7 +28,12 @@ function renderTable(rows) {
     const tr = document.createElement('tr');
     r.forEach(c => {
       const td = document.createElement('td');
-      td.textContent = c !== undefined ? c : '';
+      const val = c !== undefined && c !== null ? c : '';
+      if (val === '') {
+        td.innerHTML = '&nbsp;';
+      } else {
+        td.textContent = val;
+      }
       tr.appendChild(td);
     });
     table.appendChild(tr);
@@ -94,7 +98,6 @@ async function handleWorkbook(ab) {
     const wb = XLSX.read(ab, { type: 'array' });
     sheetjsWb = wb;
 
-
     const sheetNames = Object.keys(wb.Sheets || {});
     log('Detected sheets: ' + sheetNames.join(', '));
 
@@ -104,7 +107,14 @@ async function handleWorkbook(ab) {
     } else {
       log('No defined names');
     }
-    if (!names.find(n => n.Name === 'INFOTable')) {
+    const infoName = names.find(n => n.Name === 'INFOTable');
+    if (infoName) {
+      const idx = infoName.Ref.indexOf('!');
+      const sheet = idx !== -1 ? infoName.Ref.slice(0, idx).replace(/^'/, '').replace(/'$/, '') : '(unknown)';
+      const ref = idx !== -1 ? infoName.Ref.slice(idx + 1) : infoName.Ref;
+      log(`Found named range 'INFOTable' on sheet ${sheet} range ${ref}`);
+    } else {
+
       log("Named range 'INFOTable' not found");
     }
 
@@ -152,7 +162,6 @@ async function handleWorkbook(ab) {
     populateDropdown();
     const firstSheet = tableEntries[0] ? tableEntries[0].sheet : (sheetNames.includes('INFO') ? 'INFO' : sheetNames[0]);
     showC1(firstSheet);
-
   } catch (err) {
     log('Error parsing workbook: ' + err.message);
     if (err.stack) log(err.stack);
@@ -196,7 +205,8 @@ async function loadFromURL() {
   }
 }
 
-function loadFromFile() {
+async function loadFromFile() {
+
   clearLog();
   setStatus('');
   document.getElementById('cellC1').textContent = '';
@@ -211,10 +221,11 @@ function loadFromFile() {
   }
   log(`Selected file: ${file.name} (${file.size} bytes)`);
   const reader = new FileReader();
-  reader.onload = function (e) {
+  reader.onload = async function (e) {
     const ab = e.target.result;
     log('File read: ' + ab.byteLength + ' bytes');
-    handleWorkbook(ab);
+    await handleWorkbook(ab);
+
   };
   reader.onerror = function (e) {
     const err = e.target.error;
@@ -241,12 +252,13 @@ function loadFromFile() {
       return;
     }
     if (info.type === 'table') {
-      log(`Rendering table ${info.name} range ${info.ref}`);
+      log(`Rendering table '${info.name}' range ${info.ref}`);
       const ws = sheetjsWb.Sheets[info.sheet];
       if (ws) {
-        const range = info.ref && info.ref.includes('!') ? info.ref.split('!')[1] : info.ref;
+        const range = info.ref;
         if (range) {
-          const rows = XLSX.utils.sheet_to_json(ws, { header: 1, range });
+          const rows = XLSX.utils.sheet_to_json(ws, { header: 1, range, defval: '' });
+
           renderTable(rows);
           const colCount = rows.reduce((m, r) => Math.max(m, r.length), 0);
           log(`Rendered ${rows.length} rows and ${colCount} columns`);
@@ -260,10 +272,10 @@ function loadFromFile() {
       }
     } else if (info.type === 'name') {
       log(`Rendering named range ${info.name} on sheet ${info.sheet} range ${info.ref}`);
-
       const ws = sheetjsWb.Sheets[info.sheet];
       if (ws) {
-        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, range: info.ref });
+        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, range: info.ref, defval: '' });
+
         renderTable(rows);
         const colCount = rows.reduce((m, r) => Math.max(m, r.length), 0);
         log(`Rendered ${rows.length} rows and ${colCount} columns`);
@@ -281,7 +293,8 @@ function loadFromFile() {
           e: { r: Math.min(used.e.r, used.s.r + 49), c: Math.min(used.e.c, used.s.c + 49) }
         };
         const rangeStr = XLSX.utils.encode_range(range);
-        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, range: rangeStr });
+        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, range: rangeStr, defval: '' });
+
         renderTable(rows);
         const colCount = rows.reduce((m, r) => Math.max(m, r.length), 0);
         log(`Rendered preview ${rows.length} rows and ${colCount} columns from ${info.sheet} (${rangeStr})`);
