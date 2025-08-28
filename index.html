@@ -21,6 +21,13 @@
     <button id="loadFileBtn">Load local file</button>
   </div>
 
+  <div class="toolbar">
+    <button id="openFsBtn">Open for edit (local, FS Access)</button>
+    <button id="saveBtn" disabled>Save</button>
+    <button id="downloadBtn">Download copy</button>
+    <span id="fsMessage"></span>
+  </div>
+
   <div id="status"></div>
 
   <div>
@@ -34,7 +41,7 @@
 
   <h2>Table Preview</h2>
 
-  <div id="table"></div>
+  <div id="tableContainer"><div id="table"></div></div>
 
   <h2>Debug log</h2>
   <pre id="debug"></pre>

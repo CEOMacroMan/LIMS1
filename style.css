@@ -19,11 +19,33 @@ body {
 }
 
 table {
+  table-layout: fixed;
   border-collapse: collapse;
+  width: max-content;
 }
 td, th {
+  min-width: 100px;
+  padding: 6px 8px;
   border: 1px solid #ccc;
-  padding: 4px 8px;
+  vertical-align: top;
+}
+
+input.cell {
+  width: 100%;
+  box-sizing: border-box;
+  border: 0;
+  padding: 4px 6px;
+}
+
+#tableContainer {
+  overflow-x: auto;
+}
+
+.toolbar {
+  margin: 10px 0;
+}
+.toolbar button {
+  margin-right: 5px;
 }
 
 #debug {
