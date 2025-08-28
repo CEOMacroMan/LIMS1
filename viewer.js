@@ -118,7 +118,9 @@ async function handleWorkbook(ab) {
         const wsTables = ws.tables || {};
         Object.keys(wsTables).forEach(tname => {
           const t = ws.getTable ? ws.getTable(tname) : wsTables[tname];
-          const addr = t && t.table ? t.table.ref : (t && t.ref ? t.ref : '');
+          const raw = t && (t.tableRef || (t.table && t.table.tableRef) || t.ref || '');
+          const addr = raw.includes('!') ? raw.split('!')[1] : raw;
+
           tableEntries.push({ type: 'table', sheet: ws.name, name: tname, ref: addr });
           log(`Table: ${tname} on sheet ${ws.name} range ${addr}`);
         });
@@ -238,8 +240,27 @@ function loadFromFile() {
       setStatus('No workbook loaded');
       return;
     }
-    if (info.type === 'table' || info.type === 'name') {
-      log(`Rendering ${info.type === 'table' ? 'table' : 'named range'} ${info.name} on sheet ${info.sheet} range ${info.ref}`);
+    if (info.type === 'table') {
+      log(`Rendering table ${info.name} range ${info.ref}`);
+      const ws = sheetjsWb.Sheets[info.sheet];
+      if (ws) {
+        const range = info.ref && info.ref.includes('!') ? info.ref.split('!')[1] : info.ref;
+        if (range) {
+          const rows = XLSX.utils.sheet_to_json(ws, { header: 1, range });
+          renderTable(rows);
+          const colCount = rows.reduce((m, r) => Math.max(m, r.length), 0);
+          log(`Rendered ${rows.length} rows and ${colCount} columns`);
+        } else {
+          log(`Invalid table range for ${info.name}: ${info.ref}`);
+          setStatus(`Invalid range ${info.ref}`);
+        }
+      } else {
+        log(`Sheet ${info.sheet} not found`);
+        setStatus(`Sheet ${info.sheet} not found`);
+      }
+    } else if (info.type === 'name') {
+      log(`Rendering named range ${info.name} on sheet ${info.sheet} range ${info.ref}`);
+
       const ws = sheetjsWb.Sheets[info.sheet];
       if (ws) {
         const rows = XLSX.utils.sheet_to_json(ws, { header: 1, range: info.ref });
