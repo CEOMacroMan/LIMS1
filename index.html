@@ -6,15 +6,40 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <h1>INFOTable contents</h1>
+  <header class="app-header">Audentes LabOps+</header>
+  <div class="container">
+  <div>
+    <label for="urlInput">Excel URL:</label>
+    <input id="urlInput" type="text" placeholder="http://localhost:5000/TestData.xlsm" />
+    <button id="loadUrlBtn">Load via URL</button>
+  </div>
 
-  <label for="file">Excel file path:</label>
-  <input id="file" type="text" placeholder="path/to/workbook.xlsx" />
-  <button id="loadBtn">Load</button>
+  <div>
+    <label for="fileInput">Local file:</label>
+    <input id="fileInput" type="file" accept=".xlsx,.xlsm,.xlsb,.xls" />
+    <button id="loadFileBtn">Load local file</button>
+  </div>
+
+  <div id="status"></div>
+
+  <div>
+    <label for="tableList">Tables / Ranges:</label>
+    <select id="tableList"></select>
+    <button id="renderBtn">Render selected table</button>
+  </div>
+
+  <h2>C1 Cell</h2>
+  <div id="cellC1"></div>
+
+  <h2>Table Preview</h2>
   <div id="table"></div>
+
   <h2>Debug log</h2>
   <pre id="debug"></pre>
+
+  </div>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js"></script>
   <script src="viewer.js"></script>
 </body>
 </html>
