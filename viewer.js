@@ -1,5 +1,6 @@
 /* global XLSX, ExcelJS */
 
+
 function log(msg) {
   console.log(msg);
   const el = document.getElementById('debug');
@@ -18,6 +19,7 @@ function setStatus(msg) {
 
 let sheetjsWb; // SheetJS workbook
 let tableEntries = []; // options for dropdown
+
 
 function renderTable(rows) {
   const container = document.getElementById('table');
@@ -92,6 +94,7 @@ async function handleWorkbook(ab) {
     const wb = XLSX.read(ab, { type: 'array' });
     sheetjsWb = wb;
 
+
     const sheetNames = Object.keys(wb.Sheets || {});
     log('Detected sheets: ' + sheetNames.join(', '));
 
@@ -117,6 +120,7 @@ async function handleWorkbook(ab) {
           const t = ws.getTable ? ws.getTable(tname) : wsTables[tname];
           const raw = t && (t.tableRef || (t.table && t.table.tableRef) || t.ref || '');
           const addr = raw.includes('!') ? raw.split('!')[1] : raw;
+
           tableEntries.push({ type: 'table', sheet: ws.name, name: tname, ref: addr });
           log(`Table: ${tname} on sheet ${ws.name} range ${addr}`);
         });
@@ -148,6 +152,7 @@ async function handleWorkbook(ab) {
     populateDropdown();
     const firstSheet = tableEntries[0] ? tableEntries[0].sheet : (sheetNames.includes('INFO') ? 'INFO' : sheetNames[0]);
     showC1(firstSheet);
+
   } catch (err) {
     log('Error parsing workbook: ' + err.message);
     if (err.stack) log(err.stack);
@@ -183,6 +188,7 @@ async function loadFromURL() {
     const ab = await resp.arrayBuffer();
     log('ArrayBuffer length: ' + ab.byteLength);
     await handleWorkbook(ab);
+
   } catch (err) {
     log('Error fetching URL: ' + err.message);
     if (err.stack) log(err.stack);
@@ -254,6 +260,7 @@ function loadFromFile() {
       }
     } else if (info.type === 'name') {
       log(`Rendering named range ${info.name} on sheet ${info.sheet} range ${info.ref}`);
+
       const ws = sheetjsWb.Sheets[info.sheet];
       if (ws) {
         const rows = XLSX.utils.sheet_to_json(ws, { header: 1, range: info.ref });
@@ -298,3 +305,6 @@ document.getElementById('renderBtn').addEventListener('click', renderSelected);
  *           http://localhost/... instead.
  */
 
+
+document.getElementById('loadUrlBtn').addEventListener('click', loadFromURL);
+document.getElementById('loadFileBtn').addEventListener('click', loadFromFile);
