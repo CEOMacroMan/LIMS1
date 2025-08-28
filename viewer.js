@@ -309,6 +309,7 @@ function applyEdits() {
       if (val === '') {
         delete ws[addr];
       } else if (val.trim() !== '' && isFinite(Number(val))) {
+
         ws[addr] = { t: 'n', v: Number(val) };
       } else {
         ws[addr] = { t: 's', v: val };
@@ -344,12 +345,14 @@ async function saveToOriginal() {
     await w.write(ab);
     await w.close();
     log(`Saved via FS Access (${ab.byteLength} bytes)`);
+
     setStatus('File saved');
   } catch (err) {
     log('Save error: ' + err.message);
     if (err.stack) log(err.stack);
     setStatus('Error saving; using Download copy. Use "Open for edit (local)" to enable saving.');
     downloadCopy();
+
   }
 }
 
@@ -367,6 +370,7 @@ function downloadCopy() {
     const name = `${base}_edited${ext}`;
     XLSX.writeFile(sheetjsWb, name, { bookType: currentBookType, bookVBA: true });
     log(`Download copy initiated (${ab.byteLength} bytes)`);
+
     setStatus('Download started');
   } catch (err) {
     log('Download error: ' + err.message);
@@ -452,6 +456,7 @@ document.getElementById('loadFileBtn').addEventListener('click', loadFromFile);
 document.getElementById('renderBtn').addEventListener('click', renderSelected);
 document.getElementById('openFsBtn').addEventListener('click', openForEdit);
 document.getElementById('saveBtn').addEventListener('click', saveToOriginal);
+
 document.getElementById('downloadBtn').addEventListener('click', downloadCopy);
 
 if (!fsSupported) {
