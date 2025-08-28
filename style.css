@@ -23,7 +23,21 @@ table {
 }
 td, th {
   border: 1px solid #ccc;
-  padding: 4px 8px;
+  padding: 0;
+}
+
+input.cell {
+  width: 100%;
+  box-sizing: border-box;
+  border: none;
+  padding: 4px;
+}
+
+.toolbar {
+  margin: 10px 0;
+}
+.toolbar button {
+  margin-right: 5px;
 }
 
 #debug {
