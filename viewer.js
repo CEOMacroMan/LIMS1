@@ -116,7 +116,7 @@ function showC1(sheetName) {
 async function handleWorkbook(ab) {
   try {
     log('Parsing workbook with SheetJS...');
-    const wb = XLSX.read(ab, { type: 'array' });
+    const wb = XLSX.read(ab, { type: 'array', bookVBA: true });
     sheetjsWb = wb;
 
     const sheetNames = Object.keys(wb.Sheets || {});
@@ -308,7 +308,8 @@ function applyEdits() {
       const addr = XLSX.utils.encode_cell({ r: currentSelection.start.r + r, c: currentSelection.start.c + c });
       if (val === '') {
         delete ws[addr];
-      } else if (isFinite(val)) {
+      } else if (val.trim() !== '' && isFinite(Number(val))) {
+
         ws[addr] = { t: 'n', v: Number(val) };
       } else {
         ws[addr] = { t: 's', v: val };
@@ -317,33 +318,41 @@ function applyEdits() {
   }
 }
 
-async function saveFile() {
+async function saveToOriginal() {
   if (!currentFileHandle) {
-    setStatus('No writable file handle. Use "Open for edit" first.');
-    log('Save aborted: no file handle');
+    setStatus('No editable file handle. Use "Open for edit (local)". Downloading copy...');
+    log('Save: missing FileSystemFileHandle; using download copy');
+    downloadCopy();
     return;
   }
   try {
-    applyEdits();
-    const ab = XLSX.write(sheetjsWb, { bookType: currentBookType, type: 'array' });
+    await currentFileHandle.getFile();
     let perm = await currentFileHandle.queryPermission({ mode: 'readwrite' });
+    log('Save: queryPermission -> ' + perm);
     if (perm !== 'granted') {
       perm = await currentFileHandle.requestPermission({ mode: 'readwrite' });
+      log('Save: requestPermission -> ' + perm);
       if (perm !== 'granted') {
-        setStatus('Write permission denied');
-        log('Write permission denied');
+        setStatus('Write permission denied. Downloading copy.');
+        log('Save: permission denied; using download copy');
+        downloadCopy();
         return;
       }
     }
+    applyEdits();
+    const ab = XLSX.write(sheetjsWb, { bookType: currentBookType, type: 'array', bookVBA: true });
     const w = await currentFileHandle.createWritable();
     await w.write(ab);
     await w.close();
-    log('Saved using File System Access API');
+    log(`Saved via FS Access (${ab.byteLength} bytes)`);
+
     setStatus('File saved');
   } catch (err) {
     log('Save error: ' + err.message);
     if (err.stack) log(err.stack);
-    setStatus('Error saving file');
+    setStatus('Error saving; using Download copy. Use "Open for edit (local)" to enable saving.');
+    downloadCopy();
+
   }
 }
 
@@ -355,11 +364,13 @@ function downloadCopy() {
   }
   try {
     applyEdits();
+    const ab = XLSX.write(sheetjsWb, { bookType: currentBookType, type: 'array', bookVBA: true });
     const base = currentFileName ? currentFileName.replace(/\.[^.]+$/, '') : 'workbook';
     const ext = currentBookType === 'xlsm' ? '.xlsm' : '.xlsx';
     const name = `${base}_edited${ext}`;
-    XLSX.writeFile(sheetjsWb, name, { bookType: currentBookType });
-    log('Download copy initiated');
+    XLSX.writeFile(sheetjsWb, name, { bookType: currentBookType, bookVBA: true });
+    log(`Download copy initiated (${ab.byteLength} bytes)`);
+
     setStatus('Download started');
   } catch (err) {
     log('Download error: ' + err.message);
@@ -444,7 +455,8 @@ document.getElementById('loadUrlBtn').addEventListener('click', loadFromURL);
 document.getElementById('loadFileBtn').addEventListener('click', loadFromFile);
 document.getElementById('renderBtn').addEventListener('click', renderSelected);
 document.getElementById('openFsBtn').addEventListener('click', openForEdit);
-document.getElementById('saveBtn').addEventListener('click', saveFile);
+document.getElementById('saveBtn').addEventListener('click', saveToOriginal);
+
 document.getElementById('downloadBtn').addEventListener('click', downloadCopy);
 
 if (!fsSupported) {
