@@ -1,5 +1,6 @@
 /* global XLSX, ExcelJS */
 
+
 function log(msg) {
   console.log(msg);
   const el = document.getElementById('debug');
@@ -113,6 +114,7 @@ async function handleWorkbook(ab) {
       const ref = idx !== -1 ? infoName.Ref.slice(idx + 1) : infoName.Ref;
       log(`Found named range 'INFOTable' on sheet ${sheet} range ${ref}`);
     } else {
+
       log("Named range 'INFOTable' not found");
     }
 
@@ -128,6 +130,7 @@ async function handleWorkbook(ab) {
           const t = ws.getTable ? ws.getTable(tname) : wsTables[tname];
           const raw = t && (t.tableRef || (t.table && t.table.tableRef) || t.ref || '');
           const addr = raw.includes('!') ? raw.split('!')[1] : raw;
+
           tableEntries.push({ type: 'table', sheet: ws.name, name: tname, ref: addr });
           log(`Table: ${tname} on sheet ${ws.name} range ${addr}`);
         });
@@ -194,6 +197,7 @@ async function loadFromURL() {
     const ab = await resp.arrayBuffer();
     log('ArrayBuffer length: ' + ab.byteLength);
     await handleWorkbook(ab);
+
   } catch (err) {
     log('Error fetching URL: ' + err.message);
     if (err.stack) log(err.stack);
@@ -202,6 +206,7 @@ async function loadFromURL() {
 }
 
 async function loadFromFile() {
+
   clearLog();
   setStatus('');
   document.getElementById('cellC1').textContent = '';
@@ -220,6 +225,7 @@ async function loadFromFile() {
     const ab = e.target.result;
     log('File read: ' + ab.byteLength + ' bytes');
     await handleWorkbook(ab);
+
   };
   reader.onerror = function (e) {
     const err = e.target.error;
@@ -252,6 +258,7 @@ async function loadFromFile() {
         const range = info.ref;
         if (range) {
           const rows = XLSX.utils.sheet_to_json(ws, { header: 1, range, defval: '' });
+
           renderTable(rows);
           const colCount = rows.reduce((m, r) => Math.max(m, r.length), 0);
           log(`Rendered ${rows.length} rows and ${colCount} columns`);
@@ -268,6 +275,7 @@ async function loadFromFile() {
       const ws = sheetjsWb.Sheets[info.sheet];
       if (ws) {
         const rows = XLSX.utils.sheet_to_json(ws, { header: 1, range: info.ref, defval: '' });
+
         renderTable(rows);
         const colCount = rows.reduce((m, r) => Math.max(m, r.length), 0);
         log(`Rendered ${rows.length} rows and ${colCount} columns`);
@@ -286,6 +294,7 @@ async function loadFromFile() {
         };
         const rangeStr = XLSX.utils.encode_range(range);
         const rows = XLSX.utils.sheet_to_json(ws, { header: 1, range: rangeStr, defval: '' });
+
         renderTable(rows);
         const colCount = rows.reduce((m, r) => Math.max(m, r.length), 0);
         log(`Rendered preview ${rows.length} rows and ${colCount} columns from ${info.sheet} (${rangeStr})`);
@@ -309,3 +318,6 @@ document.getElementById('renderBtn').addEventListener('click', renderSelected);
  *           http://localhost/... instead.
  */
 
+
+document.getElementById('loadUrlBtn').addEventListener('click', loadFromURL);
+document.getElementById('loadFileBtn').addEventListener('click', loadFromFile);
