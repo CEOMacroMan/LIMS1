@@ -7,6 +7,11 @@ function log(msg) {
   if (el) el.textContent += msg + '\n';
 }
 
+const DEBUG_MODE = true;
+function logKV(label, obj) {
+  log(label + ': ' + (typeof obj === 'string' ? obj : JSON.stringify(obj)));
+}
+
 function clearLog() {
   const el = document.getElementById('debug');
   if (el) el.textContent = '';
@@ -196,7 +201,8 @@ async function loadFromURL() {
   document.getElementById('cellC1').textContent = '';
   document.getElementById('table').innerHTML = '';
 
-  const url = document.getElementById('urlInput').value.trim();
+  const urlInput = document.getElementById('urlInput').value;
+  const url = typeof urlInput === 'string' ? urlInput.trim() : '';
   if (!url) {
     setStatus('Please enter a URL');
     log('No URL provided');
@@ -298,32 +304,72 @@ async function openForEdit() {
   updateSaveButton();
 }
 
+function safeSample(v) {
+  try {
+    return typeof v === 'string' ? v.slice(0, 50) : JSON.stringify(v).slice(0, 120);
+  } catch (e) {
+    return String(v).slice(0, 120);
+  }
+}
+
+function normalizeForWrite(raw) {
+  if (raw == null || (typeof raw === 'string' && raw.trim() === '')) return { kind: 'blank' };
+  if (typeof raw === 'number') {
+    return isNaN(raw) ? { kind: 'string', v: String(raw) } : { kind: 'number', v: raw };
+  }
+  if (typeof raw === 'boolean') return { kind: 'boolean', v: raw };
+  if (typeof raw === 'string') {
+    const s = raw;
+    const t = s.trim();
+    if (t === '') return { kind: 'blank' };
+    if (isFinite(Number(t))) return { kind: 'number', v: Number(t) };
+    return { kind: 'string', v: s };
+  }
+  if (typeof raw === 'object') {
+    if (raw && typeof raw.v !== 'undefined') return normalizeForWrite(raw.v);
+    const prim = String(raw);
+    const norm = normalizeForWrite(prim);
+    if (norm.kind === 'string' && norm.v === prim) {
+      log(`[normalizeForWrite] treating ${typeof raw} as string ${safeSample(prim)}`);
+    }
+    return norm;
+  }
+  return { kind: 'string', v: String(raw) };
+}
+
 function applyEdits() {
   if (!sheetjsWb || !currentSelection) return;
   const ws = sheetjsWb.Sheets[currentSelection.sheet];
   if (!ws) return;
+  const errors = [];
+  let processed = 0;
   for (let r = 0; r < editableData.length; ++r) {
     for (let c = 0; c < editableData[r].length; ++c) {
-      const val = editableData[r][c];
+      const raw = editableData[r][c];
       const addr = XLSX.utils.encode_cell({ r: currentSelection.start.r + r, c: currentSelection.start.c + c });
-
-      if (val == null || val === '') {
-        delete ws[addr];
-      } else if (typeof val === 'string') {
-        const trimmed = val.trim();
-        if (trimmed !== '' && isFinite(Number(trimmed))) {
-          ws[addr] = { t: 'n', v: Number(trimmed) };
+      try {
+        const norm = normalizeForWrite(raw);
+        if (norm.kind === 'blank') {
+          delete ws[addr];
+        } else if (norm.kind === 'number') {
+          ws[addr] = { t: 'n', v: norm.v };
+        } else if (norm.kind === 'boolean') {
+          ws[addr] = { t: 'b', v: norm.v };
         } else {
-          ws[addr] = { t: 's', v: val };
+          ws[addr] = { t: 's', v: norm.v };
         }
-      } else if (typeof val === 'number') {
-        ws[addr] = { t: 'n', v: val };
-      } else if (typeof val === 'boolean') {
-        ws[addr] = { t: 'b', v: val };
-      } else {
-        ws[addr] = { t: 's', v: String(val) };
+      } catch (e) {
+        errors.push({ r, c, addr, type: typeof raw, sample: safeSample(raw), message: e.message });
       }
+      processed++;
+      if (DEBUG_MODE && processed % 100 === 0) log(`[applyEdits] processed ${processed} cells`);
     }
+  }
+  if (errors.length) {
+    log('[applyEdits] cell write errors: ' + JSON.stringify(errors.slice(0, 10)));
+    const err = new Error('applyEdits failed for ' + errors.length + ' cells (see debug).');
+    err.cells = errors;
+    throw err;
   }
 }
 
@@ -334,6 +380,17 @@ async function saveToOriginal() {
     downloadCopy();
     return;
   }
+  const selIdx = document.getElementById('tableList').selectedIndex;
+  const info = tableEntries[selIdx] || {};
+  logKV('[save] selection', {
+    table: info.name || '',
+    a1: info.ref || info.range || (currentSelection && currentSelection.range),
+    sheet: currentSelection && currentSelection.sheet,
+    start: currentSelection && currentSelection.start,
+    end: currentSelection && currentSelection.end,
+    rows: editableData.length,
+    cols: Math.max(...editableData.map(r => r.length))
+  });
   try {
     await currentFileHandle.getFile();
     let perm = await currentFileHandle.queryPermission({ mode: 'readwrite' });
@@ -349,7 +406,8 @@ async function saveToOriginal() {
       }
     }
     applyEdits();
-    const ab = XLSX.write(sheetjsWb, { bookType: currentBookType, type: 'array', bookVBA: true });
+    const bookType = currentBookType === 'xlsm' ? 'xlsm' : 'xlsx';
+    const ab = XLSX.write(sheetjsWb, { type: 'array', bookType, bookVBA: currentBookType === 'xlsm' });
     const w = await currentFileHandle.createWritable();
     await w.write(ab);
     await w.close();
@@ -358,8 +416,17 @@ async function saveToOriginal() {
     setStatus('File saved');
   } catch (err) {
     log('Save error: ' + err.message);
+    logKV('[save] selection', {
+      table: info.name || '',
+      a1: info.ref || info.range || (currentSelection && currentSelection.range),
+      sheet: currentSelection && currentSelection.sheet,
+      start: currentSelection && currentSelection.start,
+      end: currentSelection && currentSelection.end
+    });
+    if (err.cells) logKV('[save] cells', err.cells.slice(0, 10));
     if (err.stack) log(err.stack);
     setStatus('Error saving; using Download copy. Use "Open for edit (local)" to enable saving.');
+    log('Save: falling back to download copy');
     downloadCopy();
 
   }
@@ -371,18 +438,38 @@ function downloadCopy() {
     log('Download aborted: no workbook');
     return;
   }
+  const selIdx = document.getElementById('tableList').selectedIndex;
+  const info = tableEntries[selIdx] || {};
+  logKV('[download] selection', {
+    table: info.name || '',
+    a1: info.ref || info.range || (currentSelection && currentSelection.range),
+    sheet: currentSelection && currentSelection.sheet,
+    start: currentSelection && currentSelection.start,
+    end: currentSelection && currentSelection.end,
+    rows: editableData.length,
+    cols: Math.max(...editableData.map(r => r.length))
+  });
   try {
     applyEdits();
-    const ab = XLSX.write(sheetjsWb, { bookType: currentBookType, type: 'array', bookVBA: true });
+    const bookType = currentBookType === 'xlsm' ? 'xlsm' : 'xlsx';
+    const ab = XLSX.write(sheetjsWb, { type: 'array', bookType, bookVBA: currentBookType === 'xlsm' });
     const base = currentFileName ? currentFileName.replace(/\.[^.]+$/, '') : 'workbook';
     const ext = currentBookType === 'xlsm' ? '.xlsm' : '.xlsx';
     const name = `${base}_edited${ext}`;
-    XLSX.writeFile(sheetjsWb, name, { bookType: currentBookType, bookVBA: true });
+    XLSX.writeFile(sheetjsWb, name, { bookType, bookVBA: currentBookType === 'xlsm' });
     log(`Download copy initiated (${ab.byteLength} bytes)`);
 
     setStatus('Download started');
   } catch (err) {
     log('Download error: ' + err.message);
+    logKV('[download] selection', {
+      table: info.name || '',
+      a1: info.ref || info.range || (currentSelection && currentSelection.range),
+      sheet: currentSelection && currentSelection.sheet,
+      start: currentSelection && currentSelection.start,
+      end: currentSelection && currentSelection.end
+    });
+    if (err.cells) logKV('[download] cells', err.cells.slice(0, 10));
     if (err.stack) log(err.stack);
     setStatus('Error downloading file');
   }
@@ -411,7 +498,7 @@ function renderSelected() {
       if (range) {
         const decoded = XLSX.utils.decode_range(range);
         const rows = XLSX.utils.sheet_to_json(ws, { header: 1, range, defval: '' });
-        currentSelection = { sheet: info.sheet, range, start: decoded.s };
+        currentSelection = { sheet: info.sheet, range, start: decoded.s, end: decoded.e };
         renderTable(rows);
         const colCount = rows.reduce((m, r) => Math.max(m, r.length), 0);
         log(`Rendered ${rows.length} rows and ${colCount} columns`);
@@ -429,7 +516,7 @@ function renderSelected() {
     if (ws) {
       const decoded = XLSX.utils.decode_range(info.ref);
       const rows = XLSX.utils.sheet_to_json(ws, { header: 1, range: info.ref, defval: '' });
-      currentSelection = { sheet: info.sheet, range: info.ref, start: decoded.s };
+      currentSelection = { sheet: info.sheet, range: info.ref, start: decoded.s, end: decoded.e };
       renderTable(rows);
       const colCount = rows.reduce((m, r) => Math.max(m, r.length), 0);
       log(`Rendered ${rows.length} rows and ${colCount} columns`);
@@ -448,7 +535,7 @@ function renderSelected() {
       };
       const rangeStr = XLSX.utils.encode_range(range);
       const rows = XLSX.utils.sheet_to_json(ws, { header: 1, range: rangeStr, defval: '' });
-      currentSelection = { sheet: info.sheet, range: rangeStr, start: range.s };
+      currentSelection = { sheet: info.sheet, range: rangeStr, start: range.s, end: range.e };
       renderTable(rows);
       const colCount = rows.reduce((m, r) => Math.max(m, r.length), 0);
       log(`Rendered preview ${rows.length} rows and ${colCount} columns from ${info.sheet} (${rangeStr})`);
