@@ -357,6 +357,7 @@ function applyEdits() {
       try {
         const norm = normalizeForWrite(raw);
         patches.push({ addr, norm });
+
         if (norm.kind === 'blank') {
           delete ws[addr];
         } else if (norm.kind === 'number') {
@@ -485,6 +486,7 @@ async function patchWorkbook(ab, patches, sheetName) {
   zip.file(sheetPath, serializer.serializeToString(sheetDoc));
   zip.file(sstPath, serializer.serializeToString(sstDoc));
   return await zip.generateAsync({ type: 'arraybuffer' });
+
 }
 
 async function saveToOriginal() {
@@ -506,6 +508,7 @@ async function saveToOriginal() {
     cols: Math.max(...editableData.map(r => r.length))
   });
   let step = 'start';
+
   try {
     step = 'getFile';
     await currentFileHandle.getFile();
@@ -528,6 +531,7 @@ async function saveToOriginal() {
     const bookType = currentBookType === 'xlsm' ? 'xlsm' : 'xlsx';
     const ab = XLSX.write(sheetjsWb, { type: 'array', bookType, bookVBA: currentBookType === 'xlsm' });
     step = 'write';
+
     const w = await currentFileHandle.createWritable();
     await w.write(ab);
     await w.close();
@@ -538,6 +542,7 @@ async function saveToOriginal() {
   } catch (err) {
     log('Save error: ' + err.message);
     logKV('[save] error', { action: 'save', step, message: err.message });
+
     logKV('[save] selection', {
       table: info.name || '',
       a1: info.ref || info.range || (currentSelection && currentSelection.range),
@@ -580,6 +585,7 @@ function downloadCopy() {
     const ab = XLSX.write(sheetjsWb, { type: 'array', bookType, bookVBA: currentBookType === 'xlsm' });
     originalFileAB = ab;
     step = 'download';
+
     const base = currentFileName ? currentFileName.replace(/\.[^.]+$/, '') : 'workbook';
     const ext = currentBookType === 'xlsm' ? '.xlsm' : '.xlsx';
     const name = `${base}_edited${ext}`;
@@ -590,6 +596,7 @@ function downloadCopy() {
   } catch (err) {
     log('Download error: ' + err.message);
     logKV('[download] error', { action: 'download', step, message: err.message });
+
     logKV('[download] selection', {
       table: info.name || '',
       a1: info.ref || info.range || (currentSelection && currentSelection.range),
