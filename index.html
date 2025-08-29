@@ -25,9 +25,7 @@
     <button id="openFsBtn">Open for edit (local, FS Access)</button>
     <button id="saveFmtBtn" disabled>Save (preserve)</button>
     <button id="downloadFmtBtn">Download copy (preserve)</button>
-    <button id="downloadBtn">Download copy (data-only)</button>
-
-    <span id="fsMessage"></span>
+    <button id="downloadDataBtn">Download copy (data-only)</button>
   </div>
 
   <div id="status"></div>
@@ -42,7 +40,6 @@
   <div id="cellC1"></div>
 
   <h2>Table Preview</h2>
-
   <div id="tableContainer"><div id="table"></div></div>
 
   <h2>Debug log</h2>
@@ -53,6 +50,6 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-  <script src="viewer.js"></script>
+  <script type="module" src="src/main.js"></script>
 </body>
 </html>
