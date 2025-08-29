@@ -1,4 +1,4 @@
-/* global XLSX, ExcelJS */
+/* global XLSX, ExcelJS, JSZip */
 
 
 function log(msg) {
@@ -29,11 +29,14 @@ let currentSelection = null; // metadata for selected range
 let currentFileHandle = null; // FileSystemFileHandle when opened via FS access
 let currentFileName = '';
 let currentBookType = 'xlsx';
-const fsSupported = ('showOpenFilePicker' in window);
+let originalFileAB = null; // original file ArrayBuffer for patching
+const fsSupported = ('showOpenFilePicker' in window) && (location.protocol === 'https:' || location.hostname === 'localhost');
 
 function updateSaveButton() {
   const btn = document.getElementById('saveBtn');
   if (btn) btn.disabled = !currentFileHandle;
+  const fmtBtn = document.getElementById('saveFmtBtn');
+  if (fmtBtn) fmtBtn.disabled = !currentFileHandle;
 }
 
 function renderTable(rows) {
@@ -226,6 +229,7 @@ async function loadFromURL() {
     currentFileHandle = null;
     currentFileName = resolved.split('/').pop().split('?')[0] || 'workbook.xlsx';
     currentBookType = currentFileName.toLowerCase().endsWith('.xlsm') ? 'xlsm' : 'xlsx';
+    originalFileAB = ab.slice(0);
     await handleWorkbook(ab);
     setStatus(`Loaded ${currentFileName}`);
     updateSaveButton();
@@ -258,6 +262,7 @@ async function loadFromFile() {
     currentFileHandle = null;
     currentFileName = file.name;
     currentBookType = file.name.toLowerCase().endsWith('.xlsm') ? 'xlsm' : 'xlsx';
+    originalFileAB = ab.slice(0);
     await handleWorkbook(ab);
     setStatus(`Loaded ${file.name} (use "Open for edit" to enable saving)`);
     updateSaveButton();
@@ -294,6 +299,7 @@ async function openForEdit() {
     currentBookType = currentFileName.toLowerCase().endsWith('.xlsm') ? 'xlsm' : 'xlsx';
     const ab = await file.arrayBuffer();
     log(`Opened ${currentFileName} via FS Access (${ab.byteLength} bytes)`);
+    originalFileAB = ab.slice(0);
     await handleWorkbook(ab);
     setStatus(`Loaded ${currentFileName} for editing`);
   } catch (err) {
@@ -338,10 +344,11 @@ function normalizeForWrite(raw) {
 }
 
 function applyEdits() {
-  if (!sheetjsWb || !currentSelection) return;
+  if (!sheetjsWb || !currentSelection) return [];
   const ws = sheetjsWb.Sheets[currentSelection.sheet];
-  if (!ws) return;
+  if (!ws) return [];
   const errors = [];
+  const patches = [];
   let processed = 0;
   for (let r = 0; r < editableData.length; ++r) {
     for (let c = 0; c < editableData[r].length; ++c) {
@@ -349,6 +356,8 @@ function applyEdits() {
       const addr = XLSX.utils.encode_cell({ r: currentSelection.start.r + r, c: currentSelection.start.c + c });
       try {
         const norm = normalizeForWrite(raw);
+        patches.push({ addr, norm });
+
         if (norm.kind === 'blank') {
           delete ws[addr];
         } else if (norm.kind === 'number') {
@@ -371,6 +380,113 @@ function applyEdits() {
     err.cells = errors;
     throw err;
   }
+  return patches;
+}
+
+async function patchWorkbook(ab, patches, sheetName) {
+  const zip = await JSZip.loadAsync(ab);
+  const parser = new DOMParser();
+  const serializer = new XMLSerializer();
+
+  const wbXml = await zip.file('xl/workbook.xml').async('string');
+  const wbDoc = parser.parseFromString(wbXml, 'application/xml');
+  const sheets = Array.from(wbDoc.getElementsByTagName('sheet'));
+  let rId = null;
+  sheets.forEach(s => {
+    if (s.getAttribute('name') === sheetName) rId = s.getAttribute('r:id');
+  });
+  if (!rId) throw new Error('sheet mapping failed');
+
+  const relsXml = await zip.file('xl/_rels/workbook.xml.rels').async('string');
+  const relsDoc = parser.parseFromString(relsXml, 'application/xml');
+  const rels = Array.from(relsDoc.getElementsByTagName('Relationship'));
+  let sheetPath = null;
+  rels.forEach(r => {
+    if (r.getAttribute('Id') === rId) sheetPath = 'xl/' + r.getAttribute('Target').replace(/^\//, '');
+  });
+  if (!sheetPath) throw new Error('worksheet path not found');
+
+  const sheetXml = await zip.file(sheetPath).async('string');
+  const sheetDoc = parser.parseFromString(sheetXml, 'application/xml');
+  const sheetRoot = sheetDoc.documentElement;
+
+  const sstPath = 'xl/sharedStrings.xml';
+  let sstDoc;
+  let shared = [];
+  let sstCount = 0;
+  if (zip.file(sstPath)) {
+    const sstXml = await zip.file(sstPath).async('string');
+    sstDoc = parser.parseFromString(sstXml, 'application/xml');
+    const sis = Array.from(sstDoc.getElementsByTagName('si'));
+    shared = sis.map(si => si.textContent);
+    const root = sstDoc.documentElement;
+    sstCount = Number(root.getAttribute('count')) || shared.length;
+  } else {
+    sstDoc = parser.parseFromString('<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="0" uniqueCount="0"></sst>', 'application/xml');
+  }
+  const sstRoot = sstDoc.documentElement;
+  let sstUnique = shared.length;
+
+  patches.forEach(p => {
+    const cell = XLSX.utils.decode_cell(p.addr);
+    const rowStr = String(cell.r + 1);
+    const addr = p.addr;
+    let rowNode = sheetDoc.querySelector(`row[r="${rowStr}"]`);
+    if (!rowNode) {
+      rowNode = sheetDoc.createElement('row');
+      rowNode.setAttribute('r', rowStr);
+      sheetRoot.appendChild(rowNode);
+    }
+    let cNode = rowNode.querySelector(`c[r="${addr}"]`);
+    if (!cNode) {
+      cNode = sheetDoc.createElement('c');
+      cNode.setAttribute('r', addr);
+      rowNode.appendChild(cNode);
+    }
+    const fNode = cNode.querySelector('f');
+    if (fNode) cNode.removeChild(fNode);
+    const vNode = cNode.querySelector('v');
+    if (vNode) cNode.removeChild(vNode);
+    cNode.removeAttribute('t');
+
+    if (p.norm.kind === 'blank') {
+      // nothing
+    } else if (p.norm.kind === 'number') {
+      cNode.setAttribute('t', 'n');
+      const newV = sheetDoc.createElement('v');
+      newV.textContent = String(p.norm.v);
+      cNode.appendChild(newV);
+    } else if (p.norm.kind === 'boolean') {
+      cNode.setAttribute('t', 'b');
+      const newV = sheetDoc.createElement('v');
+      newV.textContent = p.norm.v ? '1' : '0';
+      cNode.appendChild(newV);
+    } else if (p.norm.kind === 'string') {
+      cNode.setAttribute('t', 's');
+      let idx = shared.indexOf(p.norm.v);
+      if (idx === -1) {
+        idx = shared.length;
+        shared.push(p.norm.v);
+        const si = sstDoc.createElement('si');
+        const t = sstDoc.createElement('t');
+        if (/^\s|\s$/.test(p.norm.v)) t.setAttribute('xml:space', 'preserve');
+        t.textContent = p.norm.v;
+        si.appendChild(t);
+        sstRoot.appendChild(si);
+        sstUnique++;
+      }
+      sstCount++;
+      const newV = sheetDoc.createElement('v');
+      newV.textContent = String(idx);
+      cNode.appendChild(newV);
+    }
+  });
+  sstRoot.setAttribute('count', String(sstCount));
+  sstRoot.setAttribute('uniqueCount', String(sstUnique));
+  zip.file(sheetPath, serializer.serializeToString(sheetDoc));
+  zip.file(sstPath, serializer.serializeToString(sstDoc));
+  return await zip.generateAsync({ type: 'arraybuffer' });
+
 }
 
 async function saveToOriginal() {
@@ -391,8 +507,12 @@ async function saveToOriginal() {
     rows: editableData.length,
     cols: Math.max(...editableData.map(r => r.length))
   });
+  let step = 'start';
+
   try {
+    step = 'getFile';
     await currentFileHandle.getFile();
+    step = 'permission';
     let perm = await currentFileHandle.queryPermission({ mode: 'readwrite' });
     log('Save: queryPermission -> ' + perm);
     if (perm !== 'granted') {
@@ -405,17 +525,24 @@ async function saveToOriginal() {
         return;
       }
     }
-    applyEdits();
+    step = 'applyEdits';
+    const patches = applyEdits();
+    step = 'build-binary';
     const bookType = currentBookType === 'xlsm' ? 'xlsm' : 'xlsx';
     const ab = XLSX.write(sheetjsWb, { type: 'array', bookType, bookVBA: currentBookType === 'xlsm' });
+    step = 'write';
+
     const w = await currentFileHandle.createWritable();
     await w.write(ab);
     await w.close();
+    originalFileAB = ab;
     log(`Saved via FS Access (${ab.byteLength} bytes)`);
 
     setStatus('File saved');
   } catch (err) {
     log('Save error: ' + err.message);
+    logKV('[save] error', { action: 'save', step, message: err.message });
+
     logKV('[save] selection', {
       table: info.name || '',
       a1: info.ref || info.range || (currentSelection && currentSelection.range),
@@ -449,10 +576,16 @@ function downloadCopy() {
     rows: editableData.length,
     cols: Math.max(...editableData.map(r => r.length))
   });
+  let step = 'start';
   try {
-    applyEdits();
+    step = 'applyEdits';
+    const patches = applyEdits();
+    step = 'build-binary';
     const bookType = currentBookType === 'xlsm' ? 'xlsm' : 'xlsx';
     const ab = XLSX.write(sheetjsWb, { type: 'array', bookType, bookVBA: currentBookType === 'xlsm' });
+    originalFileAB = ab;
+    step = 'download';
+
     const base = currentFileName ? currentFileName.replace(/\.[^.]+$/, '') : 'workbook';
     const ext = currentBookType === 'xlsm' ? '.xlsm' : '.xlsx';
     const name = `${base}_edited${ext}`;
@@ -462,6 +595,8 @@ function downloadCopy() {
     setStatus('Download started');
   } catch (err) {
     log('Download error: ' + err.message);
+    logKV('[download] error', { action: 'download', step, message: err.message });
+
     logKV('[download] selection', {
       table: info.name || '',
       a1: info.ref || info.range || (currentSelection && currentSelection.range),
@@ -472,6 +607,106 @@ function downloadCopy() {
     if (err.cells) logKV('[download] cells', err.cells.slice(0, 10));
     if (err.stack) log(err.stack);
     setStatus('Error downloading file');
+  }
+}
+
+async function saveToOriginalFmt() {
+  if (!currentFileHandle) {
+    setStatus('No editable file handle. Use "Open for edit (local)" first.');
+    log('Save (preserve) aborted: no handle');
+    return;
+  }
+  const selIdx = document.getElementById('tableList').selectedIndex;
+  const info = tableEntries[selIdx] || {};
+  logKV('[save-preserve] selection', {
+    table: info.name || '',
+    a1: info.ref || info.range || (currentSelection && currentSelection.range),
+    sheet: currentSelection && currentSelection.sheet,
+    start: currentSelection && currentSelection.start,
+    end: currentSelection && currentSelection.end,
+    rows: editableData.length,
+    cols: Math.max(...editableData.map(r => r.length))
+  });
+  let step = 'start';
+  try {
+    step = 'getFile';
+    const file = await currentFileHandle.getFile();
+    const origAb = await file.arrayBuffer();
+    step = 'permission';
+    let perm = await currentFileHandle.queryPermission({ mode: 'readwrite' });
+    log('Save(preserve): queryPermission -> ' + perm);
+    if (perm !== 'granted') {
+      perm = await currentFileHandle.requestPermission({ mode: 'readwrite' });
+      log('Save(preserve): requestPermission -> ' + perm);
+      if (perm !== 'granted') {
+        setStatus('Write permission denied.');
+        throw new Error('permission denied');
+      }
+    }
+    step = 'applyEdits';
+    const patches = applyEdits();
+    step = 'build-binary';
+    const patched = await patchWorkbook(origAb, patches, currentSelection.sheet);
+    step = 'write';
+    const w = await currentFileHandle.createWritable();
+    await w.write(patched);
+    await w.close();
+    originalFileAB = patched;
+    log(`Saved (preserve formatting) (${patched.byteLength} bytes)`);
+    setStatus('File saved');
+  } catch (err) {
+    log('Save (preserve) error: ' + err.message);
+    logKV('[save-preserve] error', { action: 'save-preserve', step, message: err.message });
+    if (err.cells) logKV('[save-preserve] cells', err.cells.slice(0, 10));
+    setStatus('Error saving file');
+  }
+}
+
+async function downloadCopyFmt() {
+  if (!originalFileAB) {
+    setStatus('No workbook loaded');
+    log('Download (preserve) aborted: no workbook');
+    return;
+  }
+  const selIdx = document.getElementById('tableList').selectedIndex;
+  const info = tableEntries[selIdx] || {};
+  logKV('[download-preserve] selection', {
+    table: info.name || '',
+    a1: info.ref || info.range || (currentSelection && currentSelection.range),
+    sheet: currentSelection && currentSelection.sheet,
+    start: currentSelection && currentSelection.start,
+    end: currentSelection && currentSelection.end,
+    rows: editableData.length,
+    cols: Math.max(...editableData.map(r => r.length))
+  });
+  let step = 'start';
+  try {
+    step = 'applyEdits';
+    const patches = applyEdits();
+    step = 'build-binary';
+    const patched = await patchWorkbook(originalFileAB, patches, currentSelection.sheet);
+    step = 'download';
+    const base = currentFileName ? currentFileName.replace(/\.[^.]+$/, '') : 'workbook';
+    const ext = currentBookType === 'xlsm' ? '.xlsm' : '.xlsx';
+    const name = `${base}_edited${ext}`;
+    const blob = new Blob([patched], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    originalFileAB = patched;
+    log(`Download (preserve) initiated (${patched.byteLength} bytes)`);
+    setStatus('Download started');
+  } catch (err) {
+    log('Download (preserve) error: ' + err.message);
+    logKV('[download-preserve] error', { action: 'download-preserve', step, message: err.message });
+    if (err.cells) logKV('[download-preserve] cells', err.cells.slice(0, 10));
+    log('Download (preserve) falling back to data-only copy');
+    downloadCopy();
   }
 }
 
@@ -552,14 +787,18 @@ document.getElementById('loadFileBtn').addEventListener('click', loadFromFile);
 document.getElementById('renderBtn').addEventListener('click', renderSelected);
 document.getElementById('openFsBtn').addEventListener('click', openForEdit);
 document.getElementById('saveBtn').addEventListener('click', saveToOriginal);
+document.getElementById('saveFmtBtn').addEventListener('click', saveToOriginalFmt);
 
 document.getElementById('downloadBtn').addEventListener('click', downloadCopy);
+document.getElementById('downloadFmtBtn').addEventListener('click', downloadCopyFmt);
 
 if (!fsSupported) {
   const msg = document.getElementById('fsMessage');
-  if (msg) msg.textContent = 'FS Access API not supported; use Download copy.';
-  const openBtn = document.getElementById('openFsBtn');
-  if (openBtn) openBtn.disabled = true;
+  if (msg) msg.textContent = 'FS Access API requires HTTPS or localhost. Use Download copy.';
+  ['openFsBtn', 'saveBtn', 'saveFmtBtn'].forEach(id => {
+    const b = document.getElementById(id);
+    if (b) b.disabled = true;
+  });
 }
 
 updateSaveButton();

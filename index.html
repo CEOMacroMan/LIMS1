@@ -6,7 +6,7 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <header class="app-header">Audentes LabOps+</header>
+  <header class="app-header">Audentes LabOps+ iuvat</header>
   <div class="container">
 
   <div>
@@ -24,7 +24,9 @@
   <div class="toolbar">
     <button id="openFsBtn">Open for edit (local, FS Access)</button>
     <button id="saveBtn" disabled>Save</button>
+    <button id="saveFmtBtn" disabled>Save (preserve formatting)</button>
     <button id="downloadBtn">Download copy</button>
+    <button id="downloadFmtBtn">Download copy (preserve formatting)</button>
     <span id="fsMessage"></span>
   </div>
 
@@ -50,6 +52,7 @@
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script src="viewer.js"></script>
 </body>
 </html>
