@@ -33,8 +33,6 @@ let originalFileAB = null; // original file ArrayBuffer for patching
 const fsSupported = ('showOpenFilePicker' in window) && (location.protocol === 'https:' || location.hostname === 'localhost');
 
 function updateSaveButton() {
-  const btn = document.getElementById('saveBtn');
-  if (btn) btn.disabled = !currentFileHandle;
   const fmtBtn = document.getElementById('saveFmtBtn');
   if (fmtBtn) fmtBtn.disabled = !currentFileHandle;
 }
@@ -276,6 +274,8 @@ async function loadFromFile() {
   reader.readAsArrayBuffer(file);
 }
 
+let currentFileLastModified = 0;
+
 async function openForEdit() {
   if (!fsSupported) {
     setStatus('File System Access API not supported');
@@ -297,6 +297,7 @@ async function openForEdit() {
     const file = await handle.getFile();
     currentFileName = file.name;
     currentBookType = currentFileName.toLowerCase().endsWith('.xlsm') ? 'xlsm' : 'xlsx';
+    currentFileLastModified = file.lastModified;
     const ab = await file.arrayBuffer();
     log(`Opened ${currentFileName} via FS Access (${ab.byteLength} bytes)`);
     originalFileAB = ab.slice(0);
@@ -384,180 +385,208 @@ function applyEdits() {
 }
 
 async function patchWorkbook(ab, patches, sheetName) {
-  const zip = await JSZip.loadAsync(ab);
+  const NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+  const REL_NS = 'http://schemas.openxmlformats.org/package/2006/relationships';
   const parser = new DOMParser();
   const serializer = new XMLSerializer();
-
-  const wbXml = await zip.file('xl/workbook.xml').async('string');
-  const wbDoc = parser.parseFromString(wbXml, 'application/xml');
-  const sheets = Array.from(wbDoc.getElementsByTagName('sheet'));
-  let rId = null;
-  sheets.forEach(s => {
-    if (s.getAttribute('name') === sheetName) rId = s.getAttribute('r:id');
-  });
-  if (!rId) throw new Error('sheet mapping failed');
-
-  const relsXml = await zip.file('xl/_rels/workbook.xml.rels').async('string');
-  const relsDoc = parser.parseFromString(relsXml, 'application/xml');
-  const rels = Array.from(relsDoc.getElementsByTagName('Relationship'));
-  let sheetPath = null;
-  rels.forEach(r => {
-    if (r.getAttribute('Id') === rId) sheetPath = 'xl/' + r.getAttribute('Target').replace(/^\//, '');
-  });
-  if (!sheetPath) throw new Error('worksheet path not found');
-
-  const sheetXml = await zip.file(sheetPath).async('string');
-  const sheetDoc = parser.parseFromString(sheetXml, 'application/xml');
-  const sheetRoot = sheetDoc.documentElement;
-
-  const sstPath = 'xl/sharedStrings.xml';
-  let sstDoc;
-  let shared = [];
-  let sstCount = 0;
-  if (zip.file(sstPath)) {
-    const sstXml = await zip.file(sstPath).async('string');
-    sstDoc = parser.parseFromString(sstXml, 'application/xml');
-    const sis = Array.from(sstDoc.getElementsByTagName('si'));
-    shared = sis.map(si => si.textContent);
-    const root = sstDoc.documentElement;
-    sstCount = Number(root.getAttribute('count')) || shared.length;
-  } else {
-    sstDoc = parser.parseFromString('<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="0" uniqueCount="0"></sst>', 'application/xml');
-  }
-  const sstRoot = sstDoc.documentElement;
-  let sstUnique = shared.length;
-
-  patches.forEach(p => {
-    const cell = XLSX.utils.decode_cell(p.addr);
-    const rowStr = String(cell.r + 1);
-    const addr = p.addr;
-    let rowNode = sheetDoc.querySelector(`row[r="${rowStr}"]`);
-    if (!rowNode) {
-      rowNode = sheetDoc.createElement('row');
-      rowNode.setAttribute('r', rowStr);
-      sheetRoot.appendChild(rowNode);
-    }
-    let cNode = rowNode.querySelector(`c[r="${addr}"]`);
-    if (!cNode) {
-      cNode = sheetDoc.createElement('c');
-      cNode.setAttribute('r', addr);
-      rowNode.appendChild(cNode);
-    }
-    const fNode = cNode.querySelector('f');
-    if (fNode) cNode.removeChild(fNode);
-    const vNode = cNode.querySelector('v');
-    if (vNode) cNode.removeChild(vNode);
-    cNode.removeAttribute('t');
-
-    if (p.norm.kind === 'blank') {
-      // nothing
-    } else if (p.norm.kind === 'number') {
-      cNode.setAttribute('t', 'n');
-      const newV = sheetDoc.createElement('v');
-      newV.textContent = String(p.norm.v);
-      cNode.appendChild(newV);
-    } else if (p.norm.kind === 'boolean') {
-      cNode.setAttribute('t', 'b');
-      const newV = sheetDoc.createElement('v');
-      newV.textContent = p.norm.v ? '1' : '0';
-      cNode.appendChild(newV);
-    } else if (p.norm.kind === 'string') {
-      cNode.setAttribute('t', 's');
-      let idx = shared.indexOf(p.norm.v);
-      if (idx === -1) {
-        idx = shared.length;
-        shared.push(p.norm.v);
-        const si = sstDoc.createElement('si');
-        const t = sstDoc.createElement('t');
-        if (/^\s|\s$/.test(p.norm.v)) t.setAttribute('xml:space', 'preserve');
-        t.textContent = p.norm.v;
-        si.appendChild(t);
-        sstRoot.appendChild(si);
-        sstUnique++;
-      }
-      sstCount++;
-      const newV = sheetDoc.createElement('v');
-      newV.textContent = String(idx);
-      cNode.appendChild(newV);
-    }
-  });
-  sstRoot.setAttribute('count', String(sstCount));
-  sstRoot.setAttribute('uniqueCount', String(sstUnique));
-  zip.file(sheetPath, serializer.serializeToString(sheetDoc));
-  zip.file(sstPath, serializer.serializeToString(sstDoc));
-  return await zip.generateAsync({ type: 'arraybuffer' });
-
-}
-
-async function saveToOriginal() {
-  if (!currentFileHandle) {
-    setStatus('No editable file handle. Use "Open for edit (local)". Downloading copy...');
-    log('Save: missing FileSystemFileHandle; using download copy');
-    downloadCopy();
-    return;
-  }
-  const selIdx = document.getElementById('tableList').selectedIndex;
-  const info = tableEntries[selIdx] || {};
-  logKV('[save] selection', {
-    table: info.name || '',
-    a1: info.ref || info.range || (currentSelection && currentSelection.range),
-    sheet: currentSelection && currentSelection.sheet,
-    start: currentSelection && currentSelection.start,
-    end: currentSelection && currentSelection.end,
-    rows: editableData.length,
-    cols: Math.max(...editableData.map(r => r.length))
-  });
-  let step = 'start';
-
+  let step = 'load-zip';
   try {
-    step = 'getFile';
-    await currentFileHandle.getFile();
-    step = 'permission';
-    let perm = await currentFileHandle.queryPermission({ mode: 'readwrite' });
-    log('Save: queryPermission -> ' + perm);
-    if (perm !== 'granted') {
-      perm = await currentFileHandle.requestPermission({ mode: 'readwrite' });
-      log('Save: requestPermission -> ' + perm);
-      if (perm !== 'granted') {
-        setStatus('Write permission denied. Downloading copy.');
-        log('Save: permission denied; using download copy');
-        downloadCopy();
-        return;
-      }
-    }
-    step = 'applyEdits';
-    const patches = applyEdits();
-    step = 'build-binary';
-    const bookType = currentBookType === 'xlsm' ? 'xlsm' : 'xlsx';
-    const ab = XLSX.write(sheetjsWb, { type: 'array', bookType, bookVBA: currentBookType === 'xlsm' });
-    step = 'write';
-
-    const w = await currentFileHandle.createWritable();
-    await w.write(ab);
-    await w.close();
-    originalFileAB = ab;
-    log(`Saved via FS Access (${ab.byteLength} bytes)`);
-
-    setStatus('File saved');
-  } catch (err) {
-    log('Save error: ' + err.message);
-    logKV('[save] error', { action: 'save', step, message: err.message });
-
-    logKV('[save] selection', {
-      table: info.name || '',
-      a1: info.ref || info.range || (currentSelection && currentSelection.range),
-      sheet: currentSelection && currentSelection.sheet,
-      start: currentSelection && currentSelection.start,
-      end: currentSelection && currentSelection.end
+    const zip = await JSZip.loadAsync(ab);
+    step = 'workbook';
+    const wbDoc = parser.parseFromString(await zip.file('xl/workbook.xml').async('string'), 'application/xml');
+    const sheets = Array.from(wbDoc.getElementsByTagNameNS(NS, 'sheet'));
+    let rId = null;
+    sheets.forEach(s => {
+      if (s.getAttribute('name') === sheetName) rId = s.getAttribute('r:id') || s.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id');
     });
-    if (err.cells) logKV('[save] cells', err.cells.slice(0, 10));
-    if (err.stack) log(err.stack);
-    setStatus('Error saving; using Download copy. Use "Open for edit (local)" to enable saving.');
-    log('Save: falling back to download copy');
-    downloadCopy();
+    if (!rId) {
+      const err = new Error('sheet mapping failed');
+      err.step = 'resolve-sheet';
+      throw err;
+    }
+    step = 'rels';
+    const relsDoc = parser.parseFromString(await zip.file('xl/_rels/workbook.xml.rels').async('string'), 'application/xml');
+    const rels = Array.from(relsDoc.getElementsByTagNameNS(REL_NS, 'Relationship'));
+    let sheetPath = null;
+    rels.forEach(r => {
+      if (r.getAttribute('Id') === rId) sheetPath = 'xl/' + r.getAttribute('Target').replace(/^\//, '');
+    });
+    if (!sheetPath) {
+      const err = new Error('worksheet path not found');
+      err.step = 'resolve-sheet';
+      throw err;
+    }
+    step = 'sheet';
+    const sheetDoc = parser.parseFromString(await zip.file(sheetPath).async('string'), 'application/xml');
+    const sheetRoot = sheetDoc.documentElement;
 
+    const sstPath = 'xl/sharedStrings.xml';
+    const useSST = !!zip.file(sstPath);
+    let sstDoc, sstRoot, shared = [], sstCount = 0, sstUnique = 0;
+    if (useSST) {
+      sstDoc = parser.parseFromString(await zip.file(sstPath).async('string'), 'application/xml');
+      sstRoot = sstDoc.documentElement;
+      const sis = Array.from(sstDoc.getElementsByTagNameNS(NS, 'si'));
+      shared = sis.map(si => si.textContent);
+      sstCount = Number(sstRoot.getAttribute('count')) || shared.length;
+      sstUnique = Number(sstRoot.getAttribute('uniqueCount')) || shared.length;
+    }
+
+    const counts = { string: 0, number: 0, boolean: 0, blank: 0 };
+    let sharedReused = 0, sharedAdded = 0;
+    const xmlSpace = 'http://www.w3.org/XML/1998/namespace';
+
+    patches.forEach(p => {
+      const cell = XLSX.utils.decode_cell(p.addr);
+      const rowStr = String(cell.r + 1);
+      let rowNode = Array.from(sheetRoot.getElementsByTagNameNS(NS, 'row')).find(r => r.getAttribute('r') === rowStr);
+      if (!rowNode) {
+        rowNode = sheetDoc.createElementNS(NS, 'row');
+        rowNode.setAttribute('r', rowStr);
+        sheetRoot.appendChild(rowNode);
+      }
+      let cNode = Array.from(rowNode.getElementsByTagNameNS(NS, 'c')).find(c => c.getAttribute('r') === p.addr);
+      if (!cNode) {
+        cNode = sheetDoc.createElementNS(NS, 'c');
+        cNode.setAttribute('r', p.addr);
+        rowNode.appendChild(cNode);
+      }
+      const vNode = cNode.getElementsByTagNameNS(NS, 'v')[0];
+      if (vNode) cNode.removeChild(vNode);
+      const isNode = cNode.getElementsByTagNameNS(NS, 'is')[0];
+      if (isNode) cNode.removeChild(isNode);
+      const fNode = cNode.getElementsByTagNameNS(NS, 'f')[0];
+      if (fNode) cNode.removeChild(fNode);
+      cNode.removeAttribute('t');
+
+      if (p.norm.kind === 'blank') {
+        counts.blank++;
+      } else if (p.norm.kind === 'number') {
+        counts.number++;
+        const newV = sheetDoc.createElementNS(NS, 'v');
+        newV.textContent = String(p.norm.v);
+        cNode.appendChild(newV);
+      } else if (p.norm.kind === 'boolean') {
+        counts.boolean++;
+        cNode.setAttribute('t', 'b');
+        const newV = sheetDoc.createElementNS(NS, 'v');
+        newV.textContent = p.norm.v ? '1' : '0';
+        cNode.appendChild(newV);
+      } else if (p.norm.kind === 'string') {
+        counts.string++;
+        if (useSST) {
+          cNode.setAttribute('t', 's');
+          let idx = shared.indexOf(p.norm.v);
+          if (idx === -1) {
+            idx = shared.length;
+            shared.push(p.norm.v);
+            const si = sstDoc.createElementNS(NS, 'si');
+            const t = sstDoc.createElementNS(NS, 't');
+            if (/^\s|\s$/.test(p.norm.v)) t.setAttributeNS(xmlSpace, 'xml:space', 'preserve');
+            t.textContent = p.norm.v;
+            si.appendChild(t);
+            sstRoot.appendChild(si);
+            sstUnique++;
+            sharedAdded++;
+          } else {
+            sharedReused++;
+          }
+          sstCount++;
+          const newV = sheetDoc.createElementNS(NS, 'v');
+          newV.textContent = String(idx);
+          cNode.appendChild(newV);
+        } else {
+          cNode.setAttribute('t', 'inlineStr');
+          const is = sheetDoc.createElementNS(NS, 'is');
+          const t = sheetDoc.createElementNS(NS, 't');
+          if (/^\s|\s$/.test(p.norm.v)) t.setAttributeNS(xmlSpace, 'xml:space', 'preserve');
+          t.textContent = p.norm.v;
+          is.appendChild(t);
+          cNode.appendChild(is);
+        }
+      }
+    });
+
+    if (useSST) {
+      sstRoot.setAttribute('count', String(sstCount));
+      sstRoot.setAttribute('uniqueCount', String(sstUnique));
+      zip.file(sstPath, serializer.serializeToString(sstDoc));
+    }
+    zip.file(sheetPath, serializer.serializeToString(sheetDoc));
+    const abOut = await zip.generateAsync({ type: 'arraybuffer' });
+    return { ab: abOut, counts, shared: { reused: sharedReused, added: sharedAdded }, sheetPath, sstPath: useSST ? sstPath : null };
+  } catch (err) {
+    if (!err.step) err.step = step;
+    throw err;
   }
 }
+
+async function verifyPatch(ab, patches, sheetPath, sstPath) {
+  const NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+  const parser = new DOMParser();
+  const zip = await JSZip.loadAsync(ab);
+  const sheetDoc = parser.parseFromString(await zip.file(sheetPath).async('string'), 'application/xml');
+  const sstDoc = sstPath && zip.file(sstPath) ? parser.parseFromString(await zip.file(sstPath).async('string'), 'application/xml') : null;
+  const serializer = new XMLSerializer();
+  const probes = [patches[0], patches[Math.floor(patches.length / 2)], patches[patches.length - 1]].filter(Boolean);
+  for (const p of probes) {
+    const cell = XLSX.utils.decode_cell(p.addr);
+    const rowNode = Array.from(sheetDoc.getElementsByTagNameNS(NS, 'row')).find(r => r.getAttribute('r') === String(cell.r + 1));
+    const cNode = rowNode && Array.from(rowNode.getElementsByTagNameNS(NS, 'c')).find(c => c.getAttribute('r') === p.addr);
+    if (!cNode) {
+      logKV('[verify-failed]', { addr: p.addr, reason: 'missing cell' });
+      return false;
+    }
+    if (p.norm.kind === 'blank') {
+      if (cNode.getElementsByTagNameNS(NS, 'v')[0] || cNode.getElementsByTagNameNS(NS, 'is')[0]) {
+        logKV('[verify-failed]', { addr: p.addr, expected: 'blank', snippet: serializer.serializeToString(cNode) });
+        return false;
+      }
+    } else if (p.norm.kind === 'number') {
+      const vNode = cNode.getElementsByTagNameNS(NS, 'v')[0];
+      if (!vNode || vNode.textContent !== String(p.norm.v)) {
+        logKV('[verify-failed]', { addr: p.addr, expected: String(p.norm.v), snippet: serializer.serializeToString(cNode) });
+        return false;
+      }
+    } else if (p.norm.kind === 'boolean') {
+      const vNode = cNode.getElementsByTagNameNS(NS, 'v')[0];
+      const expected = p.norm.v ? '1' : '0';
+      if (!vNode || vNode.textContent !== expected) {
+        logKV('[verify-failed]', { addr: p.addr, expected, snippet: serializer.serializeToString(cNode) });
+        return false;
+      }
+    } else if (p.norm.kind === 'string') {
+      if (sstDoc) {
+        const vNode = cNode.getElementsByTagNameNS(NS, 'v')[0];
+        if (!vNode) {
+          logKV('[verify-failed]', { addr: p.addr, expected: p.norm.v });
+          return false;
+        }
+        const idx = Number(vNode.textContent);
+        const sis = sstDoc.getElementsByTagNameNS(NS, 'si');
+        const text = sis[idx] && sis[idx].textContent;
+        if (text !== p.norm.v) {
+          logKV('[verify-failed]', { addr: p.addr, expected: p.norm.v, actual: text });
+          return false;
+        }
+      } else {
+        const isNode = cNode.getElementsByTagNameNS(NS, 'is')[0];
+        const tNode = isNode && isNode.getElementsByTagNameNS(NS, 't')[0];
+        const text = tNode && tNode.textContent;
+        if (text !== p.norm.v) {
+          logKV('[verify-failed]', { addr: p.addr, expected: p.norm.v, actual: text });
+          return false;
+        }
+
+      }
+      processed++;
+      if (DEBUG_MODE && processed % 100 === 0) log(`[applyEdits] processed ${processed} cells`);
+    }
+  }
+  return true;
+
+}
+
 
 function downloadCopy() {
   if (!sheetjsWb) {
@@ -585,7 +614,6 @@ function downloadCopy() {
     const ab = XLSX.write(sheetjsWb, { type: 'array', bookType, bookVBA: currentBookType === 'xlsm' });
     originalFileAB = ab;
     step = 'download';
-
     const base = currentFileName ? currentFileName.replace(/\.[^.]+$/, '') : 'workbook';
     const ext = currentBookType === 'xlsm' ? '.xlsm' : '.xlsx';
     const name = `${base}_edited${ext}`;
@@ -596,7 +624,6 @@ function downloadCopy() {
   } catch (err) {
     log('Download error: ' + err.message);
     logKV('[download] error', { action: 'download', step, message: err.message });
-
     logKV('[download] selection', {
       table: info.name || '',
       a1: info.ref || info.range || (currentSelection && currentSelection.range),
@@ -607,6 +634,165 @@ function downloadCopy() {
     if (err.cells) logKV('[download] cells', err.cells.slice(0, 10));
     if (err.stack) log(err.stack);
     setStatus('Error downloading file');
+  }
+}
+
+async function saveToOriginalFmt() {
+  if (!currentFileHandle) {
+    setStatus('No editable file handle. Use "Open for edit (local)" first.');
+    log('Save (preserve) aborted: no handle');
+    return;
+  }
+  const selIdx = document.getElementById('tableList').selectedIndex;
+  const info = tableEntries[selIdx] || {};
+  logKV('[save-preserve] selection', {
+
+    table: info.name || '',
+    a1: info.ref || info.range || (currentSelection && currentSelection.range),
+    sheet: currentSelection && currentSelection.sheet,
+    start: currentSelection && currentSelection.start,
+    end: currentSelection && currentSelection.end,
+    rows: editableData.length,
+    cols: Math.max(...editableData.map(r => r.length))
+  });
+  let step = 'start';
+  try {
+    step = 'getFile';
+    const freshFile = await currentFileHandle.getFile();
+    log('Save(preserve): lastModified -> ' + freshFile.lastModified);
+    if (currentFileLastModified && freshFile.lastModified !== currentFileLastModified) {
+      if (!confirm('File changed on disk. Overwrite?')) {
+        const err = new Error('external modification');
+        err.step = 'external-change';
+        throw err;
+      }
+    }
+    const origAb = await freshFile.arrayBuffer();
+
+    step = 'permission';
+    let perm = await currentFileHandle.queryPermission({ mode: 'readwrite' });
+    log('Save(preserve): queryPermission -> ' + perm);
+    if (perm !== 'granted') {
+      perm = await currentFileHandle.requestPermission({ mode: 'readwrite' });
+      log('Save(preserve): requestPermission -> ' + perm);
+      if (perm !== 'granted') {
+        const err = new Error('permission denied');
+        err.step = 'permission';
+        throw err;
+      }
+    }
+    step = 'applyEdits';
+    const patches = applyEdits();
+    step = 'build';
+    let patchedInfo;
+    try {
+      patchedInfo = await patchWorkbook(origAb, patches, currentSelection.sheet);
+    } catch (e) {
+      e.step = e.step || 'build';
+      throw e;
+    }
+    step = 'verify';
+    const ok = await verifyPatch(patchedInfo.ab, patches, patchedInfo.sheetPath, patchedInfo.sstPath);
+    if (!ok) {
+      const err = new Error('verification failed');
+      err.step = 'verify';
+      throw err;
+    }
+    step = 'write';
+
+    const w = await currentFileHandle.createWritable();
+    await w.truncate(0);
+    await w.write(patchedInfo.ab);
+    await w.close();
+    const after = await currentFileHandle.getFile();
+    currentFileLastModified = after.lastModified;
+    originalFileAB = patchedInfo.ab;
+    logKV('[save-preserve] counts', {
+      strings: patchedInfo.counts.string,
+      numbers: patchedInfo.counts.number,
+      booleans: patchedInfo.counts.boolean,
+      blanks: patchedInfo.counts.blank,
+      sharedReused: patchedInfo.shared.reused,
+      sharedAdded: patchedInfo.shared.added
+    });
+    log(`Saved (preserve formatting) (${patchedInfo.ab.byteLength} bytes)`);
+    setStatus('File saved');
+  } catch (err) {
+    log('Save (preserve) error: ' + err.message);
+    logKV('[save-preserve] error', { action: 'save-preserve', step: err.step || step, message: err.message, name: err.name, stack: err.stack });
+    if (err.cells) logKV('[save-preserve] cells', err.cells.slice(0, 10));
+    setStatus('Error saving file');
+
+  }
+}
+
+async function downloadCopyFmt() {
+  if (!originalFileAB) {
+    setStatus('No workbook loaded');
+    log('Download (preserve) aborted: no workbook');
+    return;
+  }
+  const selIdx = document.getElementById('tableList').selectedIndex;
+  const info = tableEntries[selIdx] || {};
+  logKV('[download-preserve] selection', {
+
+    table: info.name || '',
+    a1: info.ref || info.range || (currentSelection && currentSelection.range),
+    sheet: currentSelection && currentSelection.sheet,
+    start: currentSelection && currentSelection.start,
+    end: currentSelection && currentSelection.end,
+    rows: editableData.length,
+    cols: Math.max(...editableData.map(r => r.length))
+  });
+  let step = 'start';
+  try {
+    step = 'applyEdits';
+    const patches = applyEdits();
+    step = 'build';
+    let patchedInfo;
+    try {
+      patchedInfo = await patchWorkbook(originalFileAB, patches, currentSelection.sheet);
+    } catch (e) {
+      e.step = e.step || 'build';
+      throw e;
+    }
+    step = 'verify';
+    const ok = await verifyPatch(patchedInfo.ab, patches, patchedInfo.sheetPath, patchedInfo.sstPath);
+    if (!ok) {
+      const err = new Error('verification failed');
+      err.step = 'verify';
+      throw err;
+    }
+    step = 'download';
+    const base = currentFileName ? currentFileName.replace(/\.[^.]+$/, '') : 'workbook';
+    const ext = currentBookType === 'xlsm' ? '.xlsm' : '.xlsx';
+    const name = `${base}_edited${ext}`;
+    const blob = new Blob([patchedInfo.ab], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    originalFileAB = patchedInfo.ab;
+    logKV('[download-preserve] counts', {
+      strings: patchedInfo.counts.string,
+      numbers: patchedInfo.counts.number,
+      booleans: patchedInfo.counts.boolean,
+      blanks: patchedInfo.counts.blank,
+      sharedReused: patchedInfo.shared.reused,
+      sharedAdded: patchedInfo.shared.added
+    });
+    log(`Download (preserve) initiated (${patchedInfo.ab.byteLength} bytes)`);
+    setStatus('Download started');
+  } catch (err) {
+    log('Download (preserve) error: ' + err.message);
+    logKV('[download-preserve] error', { action: 'download-preserve', step: err.step || step, message: err.message, name: err.name, stack: err.stack });
+    if (err.cells) logKV('[download-preserve] cells', err.cells.slice(0, 10));
+    setStatus('Error building download');
+
   }
 }
 
@@ -786,16 +972,15 @@ document.getElementById('loadUrlBtn').addEventListener('click', loadFromURL);
 document.getElementById('loadFileBtn').addEventListener('click', loadFromFile);
 document.getElementById('renderBtn').addEventListener('click', renderSelected);
 document.getElementById('openFsBtn').addEventListener('click', openForEdit);
-document.getElementById('saveBtn').addEventListener('click', saveToOriginal);
 document.getElementById('saveFmtBtn').addEventListener('click', saveToOriginalFmt);
-
 document.getElementById('downloadBtn').addEventListener('click', downloadCopy);
 document.getElementById('downloadFmtBtn').addEventListener('click', downloadCopyFmt);
 
 if (!fsSupported) {
   const msg = document.getElementById('fsMessage');
   if (msg) msg.textContent = 'FS Access API requires HTTPS or localhost. Use Download copy.';
-  ['openFsBtn', 'saveBtn', 'saveFmtBtn'].forEach(id => {
+  ['openFsBtn', 'saveFmtBtn'].forEach(id => {
+
     const b = document.getElementById(id);
     if (b) b.disabled = true;
   });
