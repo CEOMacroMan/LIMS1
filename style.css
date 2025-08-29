@@ -40,7 +40,7 @@ input.cell {
 
 #tableContainer {
   overflow-x: auto;
-
+  max-width: 100%;
 }
 
 .toolbar {
