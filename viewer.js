@@ -358,6 +358,7 @@ function applyEdits() {
       try {
         const norm = normalizeForWrite(raw);
         patches.push({ addr, norm });
+
         if (norm.kind === 'blank') {
           delete ws[addr];
         } else if (norm.kind === 'number') {
@@ -576,10 +577,14 @@ async function verifyPatch(ab, patches, sheetPath, sstPath) {
           logKV('[verify-failed]', { addr: p.addr, expected: p.norm.v, actual: text });
           return false;
         }
+
       }
+      processed++;
+      if (DEBUG_MODE && processed % 100 === 0) log(`[applyEdits] processed ${processed} cells`);
     }
   }
   return true;
+
 }
 
 
@@ -641,6 +646,7 @@ async function saveToOriginalFmt() {
   const selIdx = document.getElementById('tableList').selectedIndex;
   const info = tableEntries[selIdx] || {};
   logKV('[save-preserve] selection', {
+
     table: info.name || '',
     a1: info.ref || info.range || (currentSelection && currentSelection.range),
     sheet: currentSelection && currentSelection.sheet,
@@ -662,6 +668,7 @@ async function saveToOriginalFmt() {
       }
     }
     const origAb = await freshFile.arrayBuffer();
+
     step = 'permission';
     let perm = await currentFileHandle.queryPermission({ mode: 'readwrite' });
     log('Save(preserve): queryPermission -> ' + perm);
@@ -692,6 +699,7 @@ async function saveToOriginalFmt() {
       throw err;
     }
     step = 'write';
+
     const w = await currentFileHandle.createWritable();
     await w.truncate(0);
     await w.write(patchedInfo.ab);
@@ -714,6 +722,7 @@ async function saveToOriginalFmt() {
     logKV('[save-preserve] error', { action: 'save-preserve', step: err.step || step, message: err.message, name: err.name, stack: err.stack });
     if (err.cells) logKV('[save-preserve] cells', err.cells.slice(0, 10));
     setStatus('Error saving file');
+
   }
 }
 
@@ -726,6 +735,7 @@ async function downloadCopyFmt() {
   const selIdx = document.getElementById('tableList').selectedIndex;
   const info = tableEntries[selIdx] || {};
   logKV('[download-preserve] selection', {
+
     table: info.name || '',
     a1: info.ref || info.range || (currentSelection && currentSelection.range),
     sheet: currentSelection && currentSelection.sheet,
@@ -782,6 +792,107 @@ async function downloadCopyFmt() {
     logKV('[download-preserve] error', { action: 'download-preserve', step: err.step || step, message: err.message, name: err.name, stack: err.stack });
     if (err.cells) logKV('[download-preserve] cells', err.cells.slice(0, 10));
     setStatus('Error building download');
+
+  }
+}
+
+async function saveToOriginalFmt() {
+  if (!currentFileHandle) {
+    setStatus('No editable file handle. Use "Open for edit (local)" first.');
+    log('Save (preserve) aborted: no handle');
+    return;
+  }
+  const selIdx = document.getElementById('tableList').selectedIndex;
+  const info = tableEntries[selIdx] || {};
+  logKV('[save-preserve] selection', {
+    table: info.name || '',
+    a1: info.ref || info.range || (currentSelection && currentSelection.range),
+    sheet: currentSelection && currentSelection.sheet,
+    start: currentSelection && currentSelection.start,
+    end: currentSelection && currentSelection.end,
+    rows: editableData.length,
+    cols: Math.max(...editableData.map(r => r.length))
+  });
+  let step = 'start';
+  try {
+    step = 'getFile';
+    const file = await currentFileHandle.getFile();
+    const origAb = await file.arrayBuffer();
+    step = 'permission';
+    let perm = await currentFileHandle.queryPermission({ mode: 'readwrite' });
+    log('Save(preserve): queryPermission -> ' + perm);
+    if (perm !== 'granted') {
+      perm = await currentFileHandle.requestPermission({ mode: 'readwrite' });
+      log('Save(preserve): requestPermission -> ' + perm);
+      if (perm !== 'granted') {
+        setStatus('Write permission denied.');
+        throw new Error('permission denied');
+      }
+    }
+    step = 'applyEdits';
+    const patches = applyEdits();
+    step = 'build-binary';
+    const patched = await patchWorkbook(origAb, patches, currentSelection.sheet);
+    step = 'write';
+    const w = await currentFileHandle.createWritable();
+    await w.write(patched);
+    await w.close();
+    originalFileAB = patched;
+    log(`Saved (preserve formatting) (${patched.byteLength} bytes)`);
+    setStatus('File saved');
+  } catch (err) {
+    log('Save (preserve) error: ' + err.message);
+    logKV('[save-preserve] error', { action: 'save-preserve', step, message: err.message });
+    if (err.cells) logKV('[save-preserve] cells', err.cells.slice(0, 10));
+    setStatus('Error saving file');
+  }
+}
+
+async function downloadCopyFmt() {
+  if (!originalFileAB) {
+    setStatus('No workbook loaded');
+    log('Download (preserve) aborted: no workbook');
+    return;
+  }
+  const selIdx = document.getElementById('tableList').selectedIndex;
+  const info = tableEntries[selIdx] || {};
+  logKV('[download-preserve] selection', {
+    table: info.name || '',
+    a1: info.ref || info.range || (currentSelection && currentSelection.range),
+    sheet: currentSelection && currentSelection.sheet,
+    start: currentSelection && currentSelection.start,
+    end: currentSelection && currentSelection.end,
+    rows: editableData.length,
+    cols: Math.max(...editableData.map(r => r.length))
+  });
+  let step = 'start';
+  try {
+    step = 'applyEdits';
+    const patches = applyEdits();
+    step = 'build-binary';
+    const patched = await patchWorkbook(originalFileAB, patches, currentSelection.sheet);
+    step = 'download';
+    const base = currentFileName ? currentFileName.replace(/\.[^.]+$/, '') : 'workbook';
+    const ext = currentBookType === 'xlsm' ? '.xlsm' : '.xlsx';
+    const name = `${base}_edited${ext}`;
+    const blob = new Blob([patched], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    originalFileAB = patched;
+    log(`Download (preserve) initiated (${patched.byteLength} bytes)`);
+    setStatus('Download started');
+  } catch (err) {
+    log('Download (preserve) error: ' + err.message);
+    logKV('[download-preserve] error', { action: 'download-preserve', step, message: err.message });
+    if (err.cells) logKV('[download-preserve] cells', err.cells.slice(0, 10));
+    log('Download (preserve) falling back to data-only copy');
+    downloadCopy();
   }
 }
 
@@ -862,7 +973,6 @@ document.getElementById('loadFileBtn').addEventListener('click', loadFromFile);
 document.getElementById('renderBtn').addEventListener('click', renderSelected);
 document.getElementById('openFsBtn').addEventListener('click', openForEdit);
 document.getElementById('saveFmtBtn').addEventListener('click', saveToOriginalFmt);
-
 document.getElementById('downloadBtn').addEventListener('click', downloadCopy);
 document.getElementById('downloadFmtBtn').addEventListener('click', downloadCopyFmt);
 
@@ -870,6 +980,7 @@ if (!fsSupported) {
   const msg = document.getElementById('fsMessage');
   if (msg) msg.textContent = 'FS Access API requires HTTPS or localhost. Use Download copy.';
   ['openFsBtn', 'saveFmtBtn'].forEach(id => {
+
     const b = document.getElementById(id);
     if (b) b.disabled = true;
   });
