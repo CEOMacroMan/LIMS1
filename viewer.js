@@ -306,13 +306,22 @@ function applyEdits() {
     for (let c = 0; c < editableData[r].length; ++c) {
       const val = editableData[r][c];
       const addr = XLSX.utils.encode_cell({ r: currentSelection.start.r + r, c: currentSelection.start.c + c });
-      if (val === '') {
-        delete ws[addr];
-      } else if (val.trim() !== '' && isFinite(Number(val))) {
 
-        ws[addr] = { t: 'n', v: Number(val) };
+      if (val == null || val === '') {
+        delete ws[addr];
+      } else if (typeof val === 'string') {
+        const trimmed = val.trim();
+        if (trimmed !== '' && isFinite(Number(trimmed))) {
+          ws[addr] = { t: 'n', v: Number(trimmed) };
+        } else {
+          ws[addr] = { t: 's', v: val };
+        }
+      } else if (typeof val === 'number') {
+        ws[addr] = { t: 'n', v: val };
+      } else if (typeof val === 'boolean') {
+        ws[addr] = { t: 'b', v: val };
       } else {
-        ws[addr] = { t: 's', v: val };
+        ws[addr] = { t: 's', v: String(val) };
       }
     }
   }
