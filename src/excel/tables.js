@@ -2,8 +2,10 @@
 export async function discoverTables(ab, sheetjsWb) {
   const ex = new ExcelJS.Workbook();
   await ex.xlsx.load(ab);
-  const out = [];
+  const entries = [];
   const sheets = [];
+  const tableNames = [];
+  const nameNames = [];
   ex.eachSheet(ws => {
     sheets.push({ sheet: ws.name, ref: ws.model && ws.model.ref });
     const list = [];
@@ -18,8 +20,10 @@ export async function discoverTables(ab, sheetjsWb) {
     list.forEach(tbl => {
       const name = tbl.name || tbl.displayName;
       const ref = tbl.tableRef || (tbl.model && tbl.model.tableRef) || (tbl.table && tbl.table.ref);
-
-      if (name && ref) out.push({ type: 'table', sheet: ws.name, name, ref });
+      if (name && ref) {
+        entries.push({ type: 'table', sheet: ws.name, name, ref });
+        tableNames.push(name);
+      }
     });
   });
   const names = sheetjsWb && sheetjsWb.Workbook && sheetjsWb.Workbook.Names ? sheetjsWb.Workbook.Names : [];
@@ -29,10 +33,11 @@ export async function discoverTables(ab, sheetjsWb) {
     if (parts.length !== 2) return;
     const sheetName = parts[0].replace(/^'/, '').replace(/'$/, '');
     const ref = parts[1];
-    out.push({ type: 'name', sheet: sheetName, name: n.Name, ref });
+    entries.push({ type: 'name', sheet: sheetName, name: n.Name, ref });
+    nameNames.push(n.Name);
   });
-  if (out.length === 0) {
-    sheets.forEach(s => out.push({ type: 'sheet', sheet: s.sheet, name: s.sheet, ref: s.ref }));
+  if (tableNames.length === 0 && nameNames.length === 0) {
+    sheets.forEach(s => entries.push({ type: 'sheet', sheet: s.sheet, name: s.sheet, ref: s.ref }));
   }
-  return out;
+  return { entries, tableCount: tableNames.length, nameCount: nameNames.length, workbook: ex };
 }

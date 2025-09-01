@@ -1,5 +1,6 @@
 export const state = {
   workbook: null,
+  exceljs: null,
   tableEntries: [],
   selection: null,
   editableData: [],
