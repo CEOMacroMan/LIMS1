@@ -111,5 +111,5 @@ function renderSelected() {
 if (!fsSupported) {
   document.getElementById('openFsBtn').disabled = true;
   document.getElementById('saveFmtBtn').disabled = true;
-  setStatus('FS Access API requires HTTPS or localhost.');
+  setStatus('FS Access API requires HTTPS or localhost/127.0.0.1.');
 }

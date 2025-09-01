@@ -4,7 +4,9 @@ import { readWorkbook } from '../excel/workbook.js';
 import { discoverTables } from '../excel/tables.js';
 import { log, logKV } from '../logger.js';
 
-export const fsSupported = ('showOpenFilePicker' in window) && (location.protocol === 'https:' || location.hostname === 'localhost');
+export const fsSupported =
+  'showOpenFilePicker' in window &&
+  (location.protocol === 'https:' || ['localhost', '127.0.0.1'].includes(location.hostname));
 
 async function loadFromArrayBuffer(ab, fname, handle) {
   try {
