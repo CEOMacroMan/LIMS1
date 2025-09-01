@@ -3,14 +3,15 @@ export async function discoverTables(ab) {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(ab);
   const out = [];
+  const sheets = [];
   wb.eachSheet(ws => {
+    sheets.push({ sheet: ws.name, ref: ws.model && ws.model.ref });
     const tbls = ws.model && ws.model.tables ? ws.model.tables : {};
     Object.values(tbls).forEach(tbl => {
       const name = tbl.name || tbl.displayName || (tbl.table && tbl.table.name);
       const ref = tbl.ref || (tbl.table && tbl.table.ref);
-      out.push({ type: 'table', sheet: ws.name, name, ref });
+      if (name && ref) out.push({ type: 'table', sheet: ws.name, name, ref });
     });
-    out.push({ type: 'sheet', sheet: ws.name, name: ws.name, ref: ws.model && ws.model.ref });
   });
   const names = wb.definedNames && wb.definedNames.model && wb.definedNames.model.names ? wb.definedNames.model.names : [];
   names.forEach(n => {
@@ -21,5 +22,8 @@ export async function discoverTables(ab) {
       out.push({ type: 'name', sheet: sheetName, name: n.name, ref });
     }
   });
+  if (out.length === 0) {
+    sheets.forEach(s => out.push({ type: 'sheet', sheet: s.sheet, name: s.sheet, ref: s.ref }));
+  }
   return out;
 }

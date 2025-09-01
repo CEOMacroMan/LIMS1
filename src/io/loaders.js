@@ -27,11 +27,6 @@ export async function loadFromUrl(url) {
   return await loadFromArrayBuffer(ab, name, null);
 }
 
-export async function loadFromFile(file) {
-  const ab = await file.arrayBuffer();
-  return await loadFromArrayBuffer(ab, file.name, null);
-}
-
 export async function openForEdit() {
   if (!fsSupported) return;
   try {
