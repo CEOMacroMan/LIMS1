@@ -20,6 +20,7 @@ export async function savePreserve() {
     if (!(await verifyPermission(handle))) throw { step: 'permission', name: 'PermissionError', message: 'Permission denied' };
     applyEdits();
     const ab = await buildPreserveBinary();
+    state.originalAb = ab;
     const w = await handle.createWritable();
     await w.truncate(0);
     await w.write(ab);
@@ -38,6 +39,7 @@ export async function downloadPreserve() {
   try {
     applyEdits();
     const ab = await buildPreserveBinary();
+    state.originalAb = ab;
     const mime = MIME_MAP[state.originalExt] || MIME_MAP.xlsx;
     const blob = new Blob([ab], { type: mime });
     const url = URL.createObjectURL(blob);

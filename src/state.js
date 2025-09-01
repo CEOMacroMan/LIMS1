@@ -5,5 +5,6 @@ export const state = {
   editableData: [],
   originalName: '',
   originalExt: 'xlsx',
+  originalAb: null,
   fileHandle: null
 };

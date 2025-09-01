@@ -1,26 +1,35 @@
 /* global ExcelJS */
-export async function discoverTables(ab) {
-  const wb = new ExcelJS.Workbook();
-  await wb.xlsx.load(ab);
+export async function discoverTables(ab, sheetjsWb) {
+  const ex = new ExcelJS.Workbook();
+  await ex.xlsx.load(ab);
   const out = [];
   const sheets = [];
-  wb.eachSheet(ws => {
+  ex.eachSheet(ws => {
     sheets.push({ sheet: ws.name, ref: ws.model && ws.model.ref });
-    const tbls = ws.model && ws.model.tables ? ws.model.tables : {};
-    Object.values(tbls).forEach(tbl => {
-      const name = tbl.name || tbl.displayName || (tbl.table && tbl.table.name);
-      const ref = tbl.ref || (tbl.table && tbl.table.ref);
+    const list = [];
+    if (typeof ws.eachTable === 'function') {
+      ws.eachTable(t => list.push(t));
+    } else if (ws.model && ws.model.tables) {
+      Object.keys(ws.model.tables).forEach(n => {
+        const t = ws.getTable ? ws.getTable(n) : null;
+        if (t) list.push(t);
+      });
+    }
+    list.forEach(tbl => {
+      const name = tbl.name || tbl.displayName;
+      const ref = tbl.tableRef || (tbl.model && tbl.model.tableRef) || (tbl.table && tbl.table.ref);
+
       if (name && ref) out.push({ type: 'table', sheet: ws.name, name, ref });
     });
   });
-  const names = wb.definedNames && wb.definedNames.model && wb.definedNames.model.names ? wb.definedNames.model.names : [];
+  const names = sheetjsWb && sheetjsWb.Workbook && sheetjsWb.Workbook.Names ? sheetjsWb.Workbook.Names : [];
   names.forEach(n => {
-    const first = n.ranges && n.ranges[0];
-    if (first) {
-      const [sheet, ref] = first.split('!');
-      const sheetName = sheet.replace(/^'/, '').replace(/'$/, '');
-      out.push({ type: 'name', sheet: sheetName, name: n.name, ref });
-    }
+    if (!n.Ref) return;
+    const parts = n.Ref.split('!');
+    if (parts.length !== 2) return;
+    const sheetName = parts[0].replace(/^'/, '').replace(/'$/, '');
+    const ref = parts[1];
+    out.push({ type: 'name', sheet: sheetName, name: n.Name, ref });
   });
   if (out.length === 0) {
     sheets.forEach(s => out.push({ type: 'sheet', sheet: s.sheet, name: s.sheet, ref: s.ref }));
