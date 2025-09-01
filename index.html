@@ -15,19 +15,10 @@
     <button id="loadUrlBtn">Load via URL</button>
   </div>
 
-  <div>
-    <label for="fileInput">Local file:</label>
-    <input id="fileInput" type="file" accept=".xlsx,.xlsm,.xlsb,.xls,.ods" />
-    <button id="loadFileBtn">Load local file</button>
-  </div>
-
   <div class="toolbar">
     <button id="openFsBtn">Open for edit (local, FS Access)</button>
-    <button id="saveFmtBtn" disabled>Save (preserve)</button>
-    <button id="downloadFmtBtn">Download copy (preserve)</button>
-    <button id="downloadBtn">Download copy (data-only)</button>
-
-    <span id="fsMessage"></span>
+    <button id="saveBtn" disabled>Save (preserve)</button>
+    <button id="downloadBtn">Download (preserve)</button>
   </div>
 
   <div id="status"></div>
@@ -42,7 +33,6 @@
   <div id="cellC1"></div>
 
   <h2>Table Preview</h2>
-
   <div id="tableContainer"><div id="table"></div></div>
 
   <h2>Debug log</h2>
@@ -53,6 +43,6 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-  <script src="viewer.js"></script>
+  <script type="module" src="viewer.js"></script>
 </body>
 </html>
