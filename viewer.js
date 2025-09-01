@@ -3,7 +3,7 @@ import { HEADER_TEXT } from './src/constants.js';
 import { state } from './src/state.js';
 import { log, logKV } from './src/logger.js';
 import { setStatus } from './src/utils/dom.js';
-import { loadFromUrl, openForEdit, fsSupported } from './src/io/loaders.js';
+import { loadFromUrl, openForEdit as openFs, fsSupported } from './src/io/loaders.js';
 import { savePreserve, downloadPreserve } from './src/io/savePreserve.js';
 import { downloadDataOnly } from './src/io/saveDataOnly.js';
 
@@ -11,7 +11,7 @@ import { populateTableSelect, enableSave } from './src/ui/controls.js';
 import { renderGrid } from './src/render/grid.js';
 
 // set header text
-const header = document.querySelector('.app-header');
+const header = document.querySelector('.app-header .title');
 if (header) header.textContent = HEADER_TEXT;
 
 function showC1(sheetName) {
@@ -44,14 +44,23 @@ document.getElementById('loadUrlBtn').addEventListener('click', async () => {
   }
 });
 
-document.getElementById('openFsBtn').addEventListener('click', async () => {
+async function openForEdit() {
+  log('[fs] openForEdit');
+  if (!('showOpenFilePicker' in window)) {
+    setStatus('File System Access API not supported in this browser.');
+    document.getElementById('openFsBtn').disabled = true;
+    document.getElementById('saveFmtBtn').disabled = true;
+    return;
+  }
   try {
-    const res = await openForEdit();
+    const res = await openFs();
     if (res) await handleLoad(res);
   } catch (err) {
     /* error already logged */
   }
-});
+}
+
+document.getElementById('openFsBtn').addEventListener('click', openForEdit);
 
 document.getElementById('saveFmtBtn').addEventListener('click', async () => {
   try { await savePreserve(); } catch (e) { /* logged */ }
@@ -102,5 +111,5 @@ function renderSelected() {
 if (!fsSupported) {
   document.getElementById('openFsBtn').disabled = true;
   document.getElementById('saveFmtBtn').disabled = true;
-  setStatus('FS Access API requires HTTPS or localhost.');
+  setStatus('FS Access API requires HTTPS or localhost/127.0.0.1.');
 }
