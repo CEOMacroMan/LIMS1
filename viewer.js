@@ -1,13 +1,13 @@
 /* global XLSX */
-import { HEADER_TEXT } from './constants.js';
-import { state } from './state.js';
-import { log, logKV } from './logger.js';
-import { setStatus } from './utils/dom.js';
-import { loadFromUrl, loadFromFile, openForEdit, fsSupported } from './io/loaders.js';
-import { savePreserve, downloadPreserve } from './io/savePreserve.js';
-import { downloadDataOnly } from './io/saveDataOnly.js';
-import { populateTableSelect, enableSave } from './ui/controls.js';
-import { renderGrid } from './render/grid.js';
+import { HEADER_TEXT } from './src/constants.js';
+import { state } from './src/state.js';
+import { log, logKV } from './src/logger.js';
+import { setStatus } from './src/utils/dom.js';
+import { loadFromUrl, openForEdit, fsSupported } from './src/io/loaders.js';
+import { savePreserve, downloadPreserve } from './src/io/savePreserve.js';
+import { downloadDataOnly } from './src/io/saveDataOnly.js';
+import { populateTableSelect, enableSave } from './src/ui/controls.js';
+import { renderGrid } from './src/render/grid.js';
 
 // set header text
 const header = document.querySelector('.app-header');
@@ -43,19 +43,6 @@ document.getElementById('loadUrlBtn').addEventListener('click', async () => {
   }
 });
 
-document.getElementById('loadFileBtn').addEventListener('click', async () => {
-  const fi = document.getElementById('fileInput');
-  const file = fi.files[0];
-  if (!file) return;
-  try {
-    const res = await loadFromFile(file);
-    await handleLoad(res);
-  } catch (err) {
-    logKV('[error]', { action: 'load-file', step: err.step || 'read', name: err.name, message: err.message });
-    setStatus('File load failed');
-  }
-});
-
 document.getElementById('openFsBtn').addEventListener('click', async () => {
   try {
     const res = await openForEdit();
@@ -69,14 +56,12 @@ document.getElementById('saveFmtBtn').addEventListener('click', async () => {
   try { await savePreserve(); } catch (e) { /* logged */ }
 });
 
-document.getElementById('downloadFmtBtn').addEventListener('click', async () => {
+document.getElementById('downloadBtn').addEventListener('click', async () => {
   try { await downloadPreserve(); } catch (e) { /* logged */ }
 });
 
 document.getElementById('downloadDataBtn').addEventListener('click', () => {
-  try { downloadDataOnly(); } catch (e) {
-    logKV('[error]', { action: 'download-data', step: 'write', name: e.name, message: e.message });
-  }
+  downloadDataOnly();
 });
 
 document.getElementById('renderBtn').addEventListener('click', () => {
@@ -105,6 +90,7 @@ function renderSelected() {
   const dec = XLSX.utils.decode_range(range);
   const rows = XLSX.utils.sheet_to_json(ws, { header: 1, range, defval: '' });
   state.selection = { sheet: info.sheet, range, start: dec.s, end: dec.e };
+  logKV('[render]', { sheet: info.sheet, name: info.name, ref: range });
   renderGrid(rows);
   const colCount = rows.reduce((m, r) => Math.max(m, r.length), 0);
   log(`Rendered ${rows.length} rows and ${colCount} columns`);

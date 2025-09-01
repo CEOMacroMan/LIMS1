@@ -11,10 +11,11 @@ async function loadFromArrayBuffer(ab, fname, handle) {
   state.originalName = fname;
   const parts = fname.split('.');
   state.originalExt = parts[parts.length - 1].toLowerCase();
+  state.originalAb = ab;
   state.fileHandle = handle || null;
   state.editableData = [];
   state.selection = null;
-  const tables = await discoverTables(ab);
+  const tables = await discoverTables(ab, state.workbook);
   state.tableEntries = tables;
   logKV('[load] sheets', Object.keys(state.workbook.Sheets));
   return { tables };
@@ -25,11 +26,6 @@ export async function loadFromUrl(url) {
   const ab = await res.arrayBuffer();
   const name = url.split('/').pop() || 'workbook.xlsx';
   return await loadFromArrayBuffer(ab, name, null);
-}
-
-export async function loadFromFile(file) {
-  const ab = await file.arrayBuffer();
-  return await loadFromArrayBuffer(ab, file.name, null);
 }
 
 export async function openForEdit() {

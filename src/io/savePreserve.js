@@ -15,29 +15,31 @@ async function verifyPermission(handle) {
 export async function savePreserve() {
   const handle = state.fileHandle;
   if (!handle) return;
-  logKV('[save-preserve] selection', state.selection);
+  logKV('[save]', { selection: state.selection });
   try {
     if (!(await verifyPermission(handle))) throw { step: 'permission', name: 'PermissionError', message: 'Permission denied' };
     applyEdits();
     const ab = await buildPreserveBinary();
+    state.originalAb = ab;
     const w = await handle.createWritable();
     await w.truncate(0);
     await w.write(ab);
     await w.close();
-    log('[save-preserve] done');
+    log('[save] done');
     setStatus('Saved');
   } catch (err) {
-    logKV('[error]', { action: 'save-preserve', step: err.step || 'write', name: err.name, message: err.message });
+    logKV('[error]', { action: 'save', step: err.step || 'write', message: err.message });
     setStatus('Save failed');
     throw err;
   }
 }
 
 export async function downloadPreserve() {
-  logKV('[download-preserve] selection', state.selection);
+  logKV('[download]', { selection: state.selection });
   try {
     applyEdits();
     const ab = await buildPreserveBinary();
+    state.originalAb = ab;
     const mime = MIME_MAP[state.originalExt] || MIME_MAP.xlsx;
     const blob = new Blob([ab], { type: mime });
     const url = URL.createObjectURL(blob);
@@ -48,10 +50,10 @@ export async function downloadPreserve() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    log('[download-preserve] initiated');
+    log('[download] initiated');
     setStatus('Download started');
   } catch (err) {
-    logKV('[error]', { action: 'download-preserve', step: err.step || 'build-binary', name: err.name, message: err.message });
+    logKV('[error]', { action: 'download', step: err.step || 'build-binary', message: err.message });
     setStatus('Download failed');
     throw err;
   }
