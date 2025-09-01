@@ -6,6 +6,7 @@ import { setStatus } from './src/utils/dom.js';
 import { loadFromUrl, openForEdit, fsSupported } from './src/io/loaders.js';
 import { savePreserve, downloadPreserve } from './src/io/savePreserve.js';
 import { downloadDataOnly } from './src/io/saveDataOnly.js';
+
 import { populateTableSelect, enableSave } from './src/ui/controls.js';
 import { renderGrid } from './src/render/grid.js';
 
@@ -63,6 +64,7 @@ document.getElementById('downloadBtn').addEventListener('click', async () => {
 document.getElementById('downloadDataBtn').addEventListener('click', () => {
   downloadDataOnly();
 });
+
 
 document.getElementById('renderBtn').addEventListener('click', () => {
   renderSelected();

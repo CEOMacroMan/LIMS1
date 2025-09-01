@@ -18,6 +18,7 @@ export async function discoverTables(ab, sheetjsWb) {
     list.forEach(tbl => {
       const name = tbl.name || tbl.displayName;
       const ref = tbl.tableRef || (tbl.model && tbl.model.tableRef) || (tbl.table && tbl.table.ref);
+
       if (name && ref) out.push({ type: 'table', sheet: ws.name, name, ref });
     });
   });
